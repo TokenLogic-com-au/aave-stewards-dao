@@ -28,8 +28,8 @@ contract DeployOFTArbitrum is ArbitrumScript {
   function run() external broadcast {
     new OFTBridgeSteward{salt: SALT}(
       OFTConstants.ARBITRUM_USDT0_OFT, // USDT0 OFT (OUpgradeable)
-      TOKEN_LOGIC, // owner
-      GovernanceV3Arbitrum.EXECUTOR_LVL_1, // guardian
+      GovernanceV3Arbitrum.EXECUTOR_LVL_1, // owner
+      TOKEN_LOGIC, // guardian
       address(AaveV3Arbitrum.COLLECTOR) // collector
     );
   }
@@ -39,8 +39,8 @@ contract DeployOFTPolygon is PolygonScript {
   function run() external broadcast {
     new OFTBridgeSteward{salt: SALT}(
       OFTConstants.POLYGON_USDT0_OFT, // USDT0 OFT (OUpgradeable)
-      TOKEN_LOGIC, // owner
-      GovernanceV3Polygon.EXECUTOR_LVL_1, // guardian
+      GovernanceV3Polygon.EXECUTOR_LVL_1, // owner
+      TOKEN_LOGIC, // guardian
       address(AaveV3Polygon.COLLECTOR) // collector
     );
   }
@@ -50,8 +50,8 @@ contract DeployOFTOptimism is OptimismScript {
   function run() external broadcast {
     new OFTBridgeSteward{salt: SALT}(
       OFTConstants.OPTIMISM_USDT0_OFT, // USDT0 OFT (OUpgradeable)
-      TOKEN_LOGIC, // owner
-      GovernanceV3Optimism.EXECUTOR_LVL_1, // guardian
+      GovernanceV3Optimism.EXECUTOR_LVL_1, // owner
+      TOKEN_LOGIC, // guardian
       address(AaveV3Optimism.COLLECTOR) // collector
     );
   }
@@ -61,8 +61,8 @@ contract DeployOFTPlasma is PlasmaScript {
   function run() external broadcast {
     new OFTBridgeSteward{salt: SALT}(
       OFTConstants.PLASMA_USDT0_OFT, // USDT0 OFT (OUpgradeable)
-      TOKEN_LOGIC, // owner
-      GovernanceV3Plasma.EXECUTOR_LVL_1, // guardian
+      GovernanceV3Plasma.EXECUTOR_LVL_1, // owner
+      TOKEN_LOGIC, // guardian
       address(AaveV3Plasma.COLLECTOR) // collector
     );
   }
