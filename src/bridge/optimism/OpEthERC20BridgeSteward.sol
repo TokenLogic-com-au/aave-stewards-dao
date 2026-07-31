@@ -10,6 +10,7 @@ import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
 import {OwnableWithGuardian} from "solidity-utils/contracts/access-control/OwnableWithGuardian.sol";
 import {RescuableBase, IRescuableBase} from "solidity-utils/contracts/utils/RescuableBase.sol";
 
+import {IBridgeSteward} from "../IBridgeSteward.sol";
 import {IOpEthERC20BridgeSteward} from "./interfaces/IOpEthERC20BridgeSteward.sol";
 import {IL2StandardBridge} from "./interfaces/IL2StandardBridge.sol";
 import {IOptimismMintableERC20} from "./interfaces/IOptimismMintableERC20.sol";
@@ -70,7 +71,7 @@ contract OpEthERC20BridgeSteward is
         require(initialGuardian != address(0), InvalidZeroAddress());
     }
 
-    /// @inheritdoc IOpEthERC20BridgeSteward
+    /// @inheritdoc IBridgeSteward
     function bridge(
         address token,
         uint256 amount
@@ -130,12 +131,12 @@ contract OpEthERC20BridgeSteward is
         emit TokenMappingRemoved(l2Token);
     }
 
-    /// @inheritdoc IOpEthERC20BridgeSteward
+    /// @inheritdoc IBridgeSteward
     function rescueToken(address token) external onlyOwnerOrGuardian {
         _emergencyTokenTransfer(token, address(AaveV3Optimism.COLLECTOR), type(uint256).max);
     }
 
-    /// @inheritdoc IOpEthERC20BridgeSteward
+    /// @inheritdoc IBridgeSteward
     function rescueEth() external onlyOwnerOrGuardian {
         _emergencyEtherTransfer(address(AaveV3Optimism.COLLECTOR), address(this).balance);
     }

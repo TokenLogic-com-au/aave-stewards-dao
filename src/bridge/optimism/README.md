@@ -18,12 +18,15 @@ Not all ERC20 tokens on Optimism are compatible with the Standard Bridge. Only t
 
 `function bridge(address token, uint256 amount) external`
 
-Callable on Optimism by owner or guardian. Pulls `amount` of `token` from the Optimism Collector, then bridges to the Mainnet Collector via the Standard Bridge. The ERC20 token must be an OptimismBurnableERC20 in order to be bridged. The token must have an L1 mapping set via `setTokenMapping`.
+Callable on Optimism by owner or guardian. Pulls `amount` of `token` from the Optimism Collector, then bridges to the Mainnet Collector via the Standard Bridge. The ERC20 token must be an OptimismMintableERC20 in order to be bridged. The token must have an L1 mapping set via `setTokenMapping`.
 
+`function bridgeEth() external payable`
+
+Callable on Optimism by owner or guardian. Bridges the native ETH sent along with the call to the Mainnet Collector via the Standard Bridge's native ETH path (`bridgeETHTo`).
 
 `function setTokenMapping(address l2Token, address l1Token) external`
 
-Callable on Optimism by owner only (governance). Sets or removes the L1 token address corresponding to an L2 token. Setting `l1Token` to `address(0)` disables bridging for that token.
+Callable on Optimism by owner only (governance). Sets the L1 token address corresponding to an L2 token. The pair is validated against the L2 token's `l1Token()`/`remoteToken()`, replicating the Standard Bridge's own check. Reverts if a mapping already exists; remove it first via `removeTokenMapping`.
 
 **Only tokens that have been mapped can be bridged.** The mapping starts empty; governance must explicitly allow each token.
 
