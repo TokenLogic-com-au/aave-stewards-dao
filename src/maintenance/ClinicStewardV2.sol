@@ -41,11 +41,11 @@ contract ClinicStewardV2 is ClinicStewardBase {
     if (block.chainid == 1 || block.chainid == 137) {
       // @note In Aave V2 Polygon, Ethereum Core and AMM an oracle has ETH as a base currency
       if (block.chainid == 1) {
-        // `ChainlinkEthereum.ETH_USD` has 8 decimals
-        return priceFromOracle * uint256(AggregatorInterface(ChainlinkEthereum.ETH_USD).latestAnswer()) / 1e18;
+        // `ChainlinkEthereum.ETH__USD` has 8 decimals
+        return priceFromOracle * uint256(AggregatorInterface(ChainlinkEthereum.ETH__USD).latestAnswer()) / 1e18;
       } else {
-        // `ChainlinkPolygon.ETH_USD` has 8 decimals
-        return priceFromOracle * uint256(AggregatorInterface(ChainlinkPolygon.ETH_USD).latestAnswer()) / 1e18;
+        // `ChainlinkPolygon.ETH__USD` has 8 decimals
+        return priceFromOracle * uint256(AggregatorInterface(ChainlinkPolygon.ETH__USD).latestAnswer()) / 1e18;
       }
     } else {
       return priceFromOracle;
