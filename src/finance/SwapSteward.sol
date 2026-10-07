@@ -7,7 +7,10 @@ import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
 import {OwnableWithGuardian} from "solidity-utils/contracts/access-control/OwnableWithGuardian.sol";
 import {RescuableBase} from "solidity-utils/contracts/utils/RescuableBase.sol";
 
+import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
+
 import {ERC1271Forwarder} from "src/finance/ERC1271Forwarder.sol";
+import {IAggregatorInterface} from "src/finance/interfaces/IAggregatorInterface.sol";
 import {ISwapSteward} from "src/finance/interfaces/ISwapSteward.sol";
 
 /**
@@ -87,22 +90,50 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   function cancelSwap(address) external onlyOwnerOrGuardian {}
 
   /// @inheritdoc ISwapSteward
-  function increaseTokenBudget(address, uint256) external onlyOwner {}
+  function increaseTokenBudget(address token, uint256 budget) external onlyOwner {
+    _increaseBudget(token, budget);
+  }
 
   /// @inheritdoc ISwapSteward
-  function decreaseTokenBudget(address, uint256) external onlyOwner {}
+  function decreaseTokenBudget(address token, uint256 budget) external onlyOwner {
+    _decreaseBudget(token, budget);
+  }
 
   /// @inheritdoc ISwapSteward
-  function setSwappablePair(address, address, bool) external onlyOwner {}
+  function setSwappablePair(address fromToken, address toToken, bool allowed) external onlyOwner {
+    if (fromToken == toToken) revert UnrecognizedTokenSwap();
+
+    swapApprovedToken[fromToken][toToken] = allowed;
+
+    emit SetSwappablePair(fromToken, toToken, allowed);
+  }
 
   /// @inheritdoc ISwapSteward
-  function setTokenOracle(address, address) external onlyOwner {}
+  function setTokenOracle(address token, address oracle) external onlyOwner {
+    if (oracle == address(0)) revert InvalidZeroAddress();
+
+    // Validate oracle has necessary functions
+    if (IAggregatorInterface(oracle).decimals() != 8) {
+      revert PriceFeedIncompatibleDecimals();
+    }
+    if (IAggregatorInterface(oracle).latestAnswer() <= 0) {
+      revert PriceFeedInvalidAnswer();
+    }
+
+    priceOracle[token] = oracle;
+
+    emit SetTokenOracle(token, oracle);
+  }
 
   /// @inheritdoc ISwapSteward
-  function rescueToken(address) external onlyOwnerOrGuardian {}
+  function rescueToken(address token) external onlyOwnerOrGuardian {
+    _emergencyTokenTransfer(token, COLLECTOR, type(uint256).max);
+  }
 
   /// @inheritdoc ISwapSteward
-  function rescueToken(address, uint256) external onlyOwnerOrGuardian {}
+  function rescueToken(address token, uint256 amount) external onlyOwnerOrGuardian {
+    _emergencyTokenTransfer(token, COLLECTOR, amount);
+  }
 
   /// @inheritdoc ISwapSteward
   function getExpectedOut(uint256, address, address) external pure returns (uint256) {}
@@ -110,5 +141,41 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   /// @inheritdoc RescuableBase
   function maxRescue(address token) public view override(RescuableBase) returns (uint256) {
     return IERC20(token).balanceOf(address(this));
+  }
+
+  /// @dev Internal function to check maximum amount
+  function _checkAmount(address fromToken, uint256 amount) internal view returns (uint256) {
+    if (amount == type(uint256).max) {
+      amount = msg.sender == owner() ? IERC20(fromToken).balanceOf(COLLECTOR) : tokenBudget[fromToken];
+    }
+
+    return amount;
+  }
+
+  function _transferTokensIn(address fromToken, uint256 amount) internal {
+    ICollector(COLLECTOR).transfer(IERC20(fromToken), address(this), amount);
+  }
+
+  /// @dev Internal function to perform common validation of swaps
+  function _validateCommon(address fromToken, address toToken, uint256 amount) internal view {
+    if (amount == 0) revert InvalidZeroAmount();
+    if (!swapApprovedToken[fromToken][toToken]) {
+      revert UnrecognizedTokenSwap();
+    }
+  }
+
+  /// @dev Internal function to decrease token budget
+  function _decreaseBudget(address fromToken, uint256 amount) internal {
+    if (amount > tokenBudget[fromToken]) revert InsufficientBudget();
+    tokenBudget[fromToken] -= amount;
+
+    emit UpdatedTokenBudget(fromToken, tokenBudget[fromToken]);
+  }
+
+  /// @dev Internal function to increase token budget
+  function _increaseBudget(address fromToken, uint256 amount) internal {
+    tokenBudget[fromToken] += amount;
+
+    emit UpdatedTokenBudget(fromToken, tokenBudget[fromToken]);
   }
 }
