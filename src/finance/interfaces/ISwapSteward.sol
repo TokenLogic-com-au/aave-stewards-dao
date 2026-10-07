@@ -2,8 +2,15 @@
 pragma solidity ^0.8.0;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
+import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
 
 interface ISwapSteward {
+  /// @dev Open swap owned by a SwapOrder clone
+  struct Swap {
+    address fromToken;
+    bytes32 orderHash;
+  }
+
   /// @dev Static input of the upstream TWAP handler
   struct TWAPData {
     IERC20 sellToken;
@@ -39,10 +46,7 @@ interface ISwapSteward {
   /// @dev Oracle is returning unexpected value
   error PriceFeedInvalidAnswer();
 
-  /// @dev A swap of fromToken is already pending; only one pending swap per fromToken is allowed
-  error SwapAlreadyPending();
-
-  /// @dev There is no pending swap of fromToken
+  /// @dev There is no open swap owned by the order
   error SwapNotFound();
 
   /// @dev Token pair has not been set for swapping
@@ -65,6 +69,7 @@ interface ISwapSteward {
   event UpdatedTokenBudget(address indexed token, uint256 budget);
 
   /// @notice Emitted when an oracle market swap is requested
+  /// @param order The SwapOrder clone that owns the swap
   /// @param orderHash Hash of the conditional order on ComposableCoW
   /// @param fromToken The token to swap from
   /// @param toToken The token to swap to
@@ -73,6 +78,7 @@ interface ISwapSteward {
   /// @param amount The amount of fromToken to swap
   /// @param slippage The maximum allowed slippage for the swap
   event SwapRequested(
+    address indexed order,
     bytes32 orderHash,
     address indexed fromToken,
     address indexed toToken,
@@ -99,11 +105,12 @@ interface ISwapSteward {
   /// @param totalAmount The total amount of fromToken to swap
   event TWAPSwapRequested(bytes32 orderHash, address indexed fromToken, address indexed toToken, uint256 totalAmount);
 
-  /// @notice Emitted when a pending swap is canceled
+  /// @notice Emitted when an open swap is canceled
+  /// @param order The SwapOrder clone that owned the swap
   /// @param orderHash Hash of the conditional order on ComposableCoW
   /// @param fromToken The token that was being swapped from
   /// @param amount The amount of fromToken returned to the Collector
-  event SwapCanceled(bytes32 indexed orderHash, address indexed fromToken, uint256 amount);
+  event SwapCanceled(address indexed order, bytes32 orderHash, address indexed fromToken, uint256 amount);
 
   /// @notice Returns address of Aave V3 Collector, the receiver of every swap and refund
   function COLLECTOR() external view returns (address);
@@ -120,16 +127,28 @@ interface ISwapSteward {
   /// @notice Returns the handler of TWAP orders
   function TWAP_HANDLER() external view returns (address);
 
-  /// @notice Returns the GPv2VaultRelayer that pulls the sold tokens
-  function VAULT_RELAYER() external view returns (address);
+  /// @notice Returns the ComposableCoW contract
+  function COMPOSABLE_COW() external view returns (IComposableCow);
+
+  /// @notice Returns the SwapOrder implementation that every swap clones
+  function SWAP_ORDER_IMPLEMENTATION() external view returns (address);
+
+  /// @notice Returns the Chainlink L2 sequencer uptime feed, zero on chains without one
+  function SEQUENCER_UPTIME_FEED() external view returns (address);
+
+  /// @notice Returns the lifetime in seconds of an oracle market order, after which it cannot be settled
+  function ORDER_LIFETIME() external view returns (uint32);
+
+  /// @notice Returns the seconds the sequencer must be up before oracle market orders are generated
+  function SEQUENCER_GRACE_PERIOD() external view returns (uint32);
 
   /// @notice Returns the appData pinned on every order
   function APP_DATA() external view returns (bytes32);
 
-  /// @notice Returns whether token is approved to be swapped from/to
+  /// @notice Returns whether the path from fromToken to toToken is approved for swapping
   /// @param fromToken Address of the token to swap from
   /// @param toToken Address of the token to swap to
-  function swapApprovedToken(address fromToken, address toToken) external view returns (bool);
+  function swapApprovedPair(address fromToken, address toToken) external view returns (bool);
 
   /// @notice Returns address of the Oracle to use for token swaps
   /// @param token Address of the token to swap
@@ -139,34 +158,28 @@ interface ISwapSteward {
   /// @param token The address of the token to query the budget for
   function tokenBudget(address token) external view returns (uint256);
 
-  /// @notice Returns the hash of the pending conditional order of fromToken, or zero if there is none
-  /// @param fromToken Address of the token being swapped from
-  function pendingOrder(address fromToken) external view returns (bytes32);
+  /// @notice Returns the open swap owned by a SwapOrder clone, or zero values if there is none
+  /// @param order Address of the SwapOrder clone
+  function swaps(address order) external view returns (address fromToken, bytes32 orderHash);
 
   /// @notice Swaps a specified amount of a sell token for a buy token at the oracle price, minus slippage
-  /// @dev Reverts if a swap of fromToken is already pending. Guardian swaps consume the token budget
+  /// @dev Deploys a SwapOrder clone that owns the order. Guardian swaps consume the token budget
   /// @param fromToken The address of the token to sell
   /// @param toToken The address of the token to buy
   /// @param amount The amount of the sell token to swap, type(uint256).max for the maximum allowed
   /// @param slippage The slippage allowed in the swap (in BPS)
-  /// @return orderHash Hash of the conditional order on ComposableCoW
-  function swap(address fromToken, address toToken, uint256 amount, uint256 slippage)
-    external
-    returns (bytes32 orderHash);
+  function swap(address fromToken, address toToken, uint256 amount, uint256 slippage) external;
 
   /// @notice Swaps a specified amount of a sell token for a buy token with a limit price
-  /// @dev Reverts if a swap of fromToken is already pending. Guardian swaps consume the token budget
+  /// @dev Guardian swaps consume the token budget
   /// @param fromToken Address of the token to swap from
   /// @param toToken Address of the token to swap to
   /// @param amount The amount of fromToken to swap, type(uint256).max for the maximum allowed
   /// @param amountOut The limit price of the toToken (minimum amount to receive)
-  /// @return orderHash Hash of the conditional order on ComposableCoW
-  function limitSwap(address fromToken, address toToken, uint256 amount, uint256 amountOut)
-    external
-    returns (bytes32 orderHash);
+  function limitSwap(address fromToken, address toToken, uint256 amount, uint256 amountOut) external;
 
   /// @notice Swaps a specified total amount of a sell token for a buy token in equal parts over time
-  /// @dev Reverts if a swap of fromToken is already pending. Guardian swaps consume the token budget
+  /// @dev Guardian swaps consume the token budget
   /// @param fromToken Address of the token to swap from
   /// @param toToken Address of the token to swap to
   /// @param partSellAmount The amount of fromToken to sell in each part
@@ -175,7 +188,6 @@ interface ISwapSteward {
   /// @param numParts Number of parts
   /// @param partDuration Duration of each part, in seconds
   /// @param span Window of each part during which it can be filled, 0 for the whole part duration
-  /// @return orderHash Hash of the conditional order on ComposableCoW
   function twapSwap(
     address fromToken,
     address toToken,
@@ -185,13 +197,13 @@ interface ISwapSteward {
     uint256 numParts,
     uint256 partDuration,
     uint256 span
-  ) external returns (bytes32 orderHash);
+  ) external;
 
-  /// @notice Cancels the pending swap of fromToken and returns its unfilled fromToken to the Collector
-  /// @dev Removes the order from ComposableCoW, zeroes the relayer allowance and sends the full
-  ///      fromToken balance of this contract to the Collector
-  /// @param fromToken The token whose pending swap is canceled
-  function cancelSwap(address fromToken) external;
+  /// @notice Cancels an open swap and returns its unfilled fromToken to the Collector
+  /// @dev Removes the order from ComposableCoW, zeroes the relayer allowance of the clone and sends the
+  ///      full fromToken balance of the clone to the Collector. Also used to clean up a filled swap
+  /// @param order The SwapOrder clone that owns the swap
+  function cancelSwap(address order) external;
 
   /// @notice Increases the budget of a token
   /// @param token The address of the token

@@ -13,6 +13,9 @@ import {IAggregatorInterface} from "src/finance/interfaces/IAggregatorInterface.
  * @notice Computes the expected output amount of a swap from two 8-decimal Chainlink-style oracle prices
  */
 library OracleMath {
+  /// @dev 100_00 is equal to 100%
+  uint256 internal constant BPS = 100_00;
+
   /// @notice Thrown when an oracle reports a price lower than or equal to zero
   /// @param oracle Address of the oracle that reported the price
   error InvalidPrice(address oracle);
@@ -39,6 +42,28 @@ library OracleMath {
     uint8 toDecimals = IERC20Metadata(toToken).decimals();
 
     return Math.mulDiv(amount, pFrom * 10 ** toDecimals, pTo * 10 ** fromDecimals);
+  }
+
+  /**
+   * @notice Returns the minimum amount of toToken accepted for `amount` of fromToken, the expected out reduced by slippage, rounded down
+   * @dev Reverts on underflow if `slippage` exceeds BPS, callers must cap it.
+   * @param fromToken Token being sold
+   * @param toToken Token being bought
+   * @param fromOracle Oracle pricing fromToken
+   * @param toOracle Oracle pricing toToken
+   * @param amount Amount of fromToken, in fromToken decimals
+   * @param slippage Allowed slippage against the oracle price, where 100_00 is equal to 100%
+   * @return Minimum amount of toToken, in toToken decimals
+   */
+  function getMinOut(
+    address fromToken,
+    address toToken,
+    address fromOracle,
+    address toOracle,
+    uint256 amount,
+    uint256 slippage
+  ) internal view returns (uint256) {
+    return getExpectedOut(fromToken, toToken, fromOracle, toOracle, amount) * (BPS - slippage) / BPS;
   }
 
   function _price(address oracle) private view returns (uint256) {

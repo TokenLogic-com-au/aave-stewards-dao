@@ -31,6 +31,17 @@ contract OracleMathHarness {
   {
     return OracleMath.getExpectedOut(fromToken, toToken, fromOracle, toOracle, amount);
   }
+
+  function getMinOut(
+    address fromToken,
+    address toToken,
+    address fromOracle,
+    address toOracle,
+    uint256 amount,
+    uint256 slippage
+  ) external view returns (uint256) {
+    return OracleMath.getMinOut(fromToken, toToken, fromOracle, toOracle, amount, slippage);
+  }
 }
 
 contract OracleMathTest is Test {
@@ -38,6 +49,8 @@ contract OracleMathTest is Test {
   uint256 internal constant MAX_FUZZ_AMOUNT = 1e30;
   uint256 internal constant MAX_FUZZ_PRICE = 1e12;
   uint256 internal constant OVERFLOW_AMOUNT = 1e60;
+  uint256 internal constant TEST_BPS = 10_000;
+  uint256 internal constant TEST_MAX_SLIPPAGE = 10_00;
 
   OracleMathHarness internal harness;
 
@@ -132,6 +145,51 @@ contract OracleMathTest is Test {
     );
 
     uint256 expected = (amount * priceFrom * 10 ** toDecimals) / (priceTo * 10 ** fromDecimals);
+    assertEq(out, expected);
+  }
+
+  function test_getMinOut_zeroSlippage() public {
+    uint256 out = harness.getMinOut(_token(18), _token(6), _oracle(100e8), _oracle(1e8), 1e18, 0);
+    assertEq(out, 100e6);
+  }
+
+  function test_getMinOut_50bps() public {
+    uint256 out = harness.getMinOut(_token(18), _token(6), _oracle(100e8), _oracle(1e8), 1e18, 50);
+    assertEq(out, 99_500_000);
+  }
+
+  function test_getMinOut_maxSlippage() public {
+    uint256 out = harness.getMinOut(_token(18), _token(6), _oracle(100e8), _oracle(1e8), 1e18, TEST_MAX_SLIPPAGE);
+    assertEq(out, 90e6);
+  }
+
+  function test_getMinOut_roundsDown() public {
+    // expected out 333_333, * 9_950 / 10_000 = 3_316_663_350 / 10_000 = 331_666.335
+    uint256 out = harness.getMinOut(_token(18), _token(6), _oracle(1e8), _oracle(3e8), 1e18, 50);
+    assertEq(out, 331_666);
+  }
+
+  function test_fuzz_getMinOut_exactFloor(
+    uint8 fromDecimals,
+    uint8 toDecimals,
+    uint256 pFrom,
+    uint256 pTo,
+    uint256 amount,
+    uint256 slippage
+  ) public {
+    fromDecimals = uint8(bound(fromDecimals, 0, MAX_FUZZ_DECIMALS));
+    toDecimals = uint8(bound(toDecimals, 0, MAX_FUZZ_DECIMALS));
+    pFrom = bound(pFrom, 1, MAX_FUZZ_PRICE);
+    pTo = bound(pTo, 1, MAX_FUZZ_PRICE);
+    amount = bound(amount, 0, MAX_FUZZ_AMOUNT);
+    slippage = bound(slippage, 0, TEST_BPS);
+
+    uint256 expected = amount * pFrom * 10 ** toDecimals / (pTo * 10 ** fromDecimals);
+    expected = expected * (TEST_BPS - slippage) / TEST_BPS;
+
+    uint256 out = harness.getMinOut(
+      _token(fromDecimals), _token(toDecimals), _oracle(int256(pFrom)), _oracle(int256(pTo)), amount, slippage
+    );
     assertEq(out, expected);
   }
 }

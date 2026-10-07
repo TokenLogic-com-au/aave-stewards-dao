@@ -2,30 +2,55 @@
 
 pragma solidity ^0.8.0;
 
-import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
-import {OwnableWithGuardian} from "solidity-utils/contracts/access-control/OwnableWithGuardian.sol";
-import {RescuableBase} from "solidity-utils/contracts/utils/RescuableBase.sol";
+import {IERC20} from 'openzeppelin-contracts/contracts/token/ERC20/IERC20.sol';
+import {SafeERC20} from 'openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol';
+import {Multicall} from 'openzeppelin-contracts/contracts/utils/Multicall.sol';
+import {Clones} from 'openzeppelin-contracts/contracts/proxy/Clones.sol';
+import {SafeCast} from 'openzeppelin-contracts/contracts/utils/math/SafeCast.sol';
+import {OwnableWithGuardian} from 'solidity-utils/contracts/access-control/OwnableWithGuardian.sol';
+import {RescuableBase} from 'solidity-utils/contracts/utils/RescuableBase.sol';
 
-import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
+import {ICollector} from 'aave-v3-origin/contracts/treasury/ICollector.sol';
 
-import {ERC1271Forwarder} from "src/finance/ERC1271Forwarder.sol";
-import {IAggregatorInterface} from "src/finance/interfaces/IAggregatorInterface.sol";
-import {ISwapSteward} from "src/finance/interfaces/ISwapSteward.sol";
+import {IAggregatorInterface} from 'src/finance/interfaces/IAggregatorInterface.sol';
+import {IComposableCow} from 'src/finance/interfaces/IComposableCow.sol';
+import {IConditionalOrder} from 'src/finance/interfaces/IConditionalOrder.sol';
+import {OracleMarketOrder} from 'src/finance/OracleMarketOrder.sol';
+import {OracleMath} from 'src/finance/libraries/OracleMath.sol';
+import {SwapOrder} from 'src/finance/SwapOrder.sol';
+import {ISwapSteward} from 'src/finance/interfaces/ISwapSteward.sol';
 
 /**
  * @title SwapSteward
- * @author efecarranza  (Tokenlogic)
+ * @author halaprix (Tokenlogic)
  * @notice Facilitates token swaps on behalf of the DAO Treasury through Composable CoW.
  * Same role, budget, pair and oracle model as MainnetSwapSteward, without Milkman.
- * The receiver of every swap is the Collector. Only one swap per fromToken can be pending.
+ * The receiver of every swap is the Collector. Each swap is owned by its own SwapOrder clone,
+ * which holds only that swap's sell tokens and relayer allowance.
  */
-contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableBase, ERC1271Forwarder {
+contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableBase {
+  using SafeERC20 for IERC20;
+
   /// @inheritdoc ISwapSteward
   uint256 public constant MAX_SLIPPAGE = 10_00; // 10%
 
   /// @inheritdoc ISwapSteward
+  uint32 public constant ORDER_LIFETIME = 1 days;
+
+  /// @inheritdoc ISwapSteward
+  uint32 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
+
+  /// @inheritdoc ISwapSteward
+  bytes32 public constant APP_DATA = bytes32(0);
+
+  /// @inheritdoc ISwapSteward
   address public immutable COLLECTOR;
+
+  /// @inheritdoc ISwapSteward
+  IComposableCow public immutable COMPOSABLE_COW;
+
+  /// @inheritdoc ISwapSteward
+  address public immutable SWAP_ORDER_IMPLEMENTATION;
 
   /// @inheritdoc ISwapSteward
   address public immutable MARKET_ORDER_HANDLER;
@@ -37,13 +62,10 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   address public immutable TWAP_HANDLER;
 
   /// @inheritdoc ISwapSteward
-  address public immutable VAULT_RELAYER;
+  address public immutable SEQUENCER_UPTIME_FEED;
 
   /// @inheritdoc ISwapSteward
-  bytes32 public immutable APP_DATA;
-
-  /// @inheritdoc ISwapSteward
-  mapping(address fromToken => mapping(address toToken => bool isApproved)) public swapApprovedToken;
+  mapping(address fromToken => mapping(address toToken => bool isApproved)) public swapApprovedPair;
 
   /// @inheritdoc ISwapSteward
   mapping(address token => address oracle) public priceOracle;
@@ -52,7 +74,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   mapping(address token => uint256 budget) public tokenBudget;
 
   /// @inheritdoc ISwapSteward
-  mapping(address fromToken => bytes32 orderHash) public pendingOrder;
+  mapping(address order => Swap swap) public swaps;
 
   constructor(
     address initialOwner,
@@ -63,31 +85,78 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     address limitOrderHandler,
     address twapHandler,
     address vaultRelayer,
-    bytes32 appData
-  ) OwnableWithGuardian(initialOwner, initialGuardian) ERC1271Forwarder(composableCow) {
+    address sequencerUptimeFeed
+  ) OwnableWithGuardian(initialOwner, initialGuardian) {
     COLLECTOR = collector;
+    COMPOSABLE_COW = IComposableCow(composableCow);
+    SWAP_ORDER_IMPLEMENTATION = address(new SwapOrder(composableCow, vaultRelayer));
     MARKET_ORDER_HANDLER = marketOrderHandler;
     LIMIT_ORDER_HANDLER = limitOrderHandler;
     TWAP_HANDLER = twapHandler;
-    VAULT_RELAYER = vaultRelayer;
-    APP_DATA = appData;
+    SEQUENCER_UPTIME_FEED = sequencerUptimeFeed;
   }
 
   /// @inheritdoc ISwapSteward
-  function swap(address, address, uint256, uint256) external onlyOwnerOrGuardian returns (bytes32) {}
+  function swap(address fromToken, address toToken, uint256 amount, uint256 slippage) external onlyOwnerOrGuardian {
+    address fromOracle = priceOracle[fromToken];
+    address toOracle = priceOracle[toToken];
+    amount = _checkAmount(fromToken, amount);
+
+    _validateSwap(fromToken, toToken, fromOracle, toOracle, amount, slippage);
+
+    address order = Clones.clone(SWAP_ORDER_IMPLEMENTATION);
+    _transferTokensTo(fromToken, order, amount);
+    if (msg.sender != owner()) {
+      _decreaseBudget(fromToken, amount);
+    }
+
+    IConditionalOrder.ConditionalOrderParams memory params = IConditionalOrder.ConditionalOrderParams(
+      IConditionalOrder(MARKET_ORDER_HANDLER),
+      bytes32(0),
+      abi.encode(
+        OracleMarketOrder.Data({
+          fromToken: fromToken,
+          toToken: toToken,
+          fromOracle: fromOracle,
+          toOracle: toOracle,
+          receiver: COLLECTOR,
+          sellAmount: amount,
+          slippage: slippage,
+          appData: APP_DATA,
+          validUntil: SafeCast.toUint32(block.timestamp + ORDER_LIFETIME),
+          sequencerUptimeFeed: SEQUENCER_UPTIME_FEED,
+          sequencerGracePeriod: SEQUENCER_GRACE_PERIOD
+        })
+      )
+    );
+
+    bytes32 orderHash = COMPOSABLE_COW.hash(params);
+    swaps[order] = Swap({fromToken: fromToken, orderHash: orderHash});
+
+    SwapOrder(order).open(params, IERC20(fromToken), amount);
+
+    emit SwapRequested(order, orderHash, fromToken, toToken, fromOracle, toOracle, amount, slippage);
+  }
 
   /// @inheritdoc ISwapSteward
-  function limitSwap(address, address, uint256, uint256) external onlyOwnerOrGuardian returns (bytes32) {}
+  function limitSwap(address, address, uint256, uint256) external onlyOwnerOrGuardian {}
 
   /// @inheritdoc ISwapSteward
   function twapSwap(address, address, uint256, uint256, uint256, uint256, uint256, uint256)
     external
     onlyOwnerOrGuardian
-    returns (bytes32)
   {}
 
   /// @inheritdoc ISwapSteward
-  function cancelSwap(address) external onlyOwnerOrGuardian {}
+  function cancelSwap(address order) external onlyOwnerOrGuardian {
+    Swap memory pending = swaps[order];
+    if (pending.orderHash == bytes32(0)) revert SwapNotFound();
+    delete swaps[order];
+
+    uint256 amount = SwapOrder(order).close(pending.orderHash, IERC20(pending.fromToken), COLLECTOR);
+
+    emit SwapCanceled(order, pending.orderHash, pending.fromToken, amount);
+  }
 
   /// @inheritdoc ISwapSteward
   function increaseTokenBudget(address token, uint256 budget) external onlyOwner {
@@ -103,7 +172,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   function setSwappablePair(address fromToken, address toToken, bool allowed) external onlyOwner {
     if (fromToken == toToken) revert UnrecognizedTokenSwap();
 
-    swapApprovedToken[fromToken][toToken] = allowed;
+    swapApprovedPair[fromToken][toToken] = allowed;
 
     emit SetSwappablePair(fromToken, toToken, allowed);
   }
@@ -136,7 +205,13 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   }
 
   /// @inheritdoc ISwapSteward
-  function getExpectedOut(uint256, address, address) external pure returns (uint256) {}
+  function getExpectedOut(uint256 amount, address fromToken, address toToken) external view returns (uint256) {
+    address fromOracle = priceOracle[fromToken];
+    address toOracle = priceOracle[toToken];
+    if (fromOracle == address(0) || toOracle == address(0)) revert OracleNotSet();
+
+    return OracleMath.getExpectedOut(fromToken, toToken, fromOracle, toOracle, amount);
+  }
 
   /// @inheritdoc RescuableBase
   function maxRescue(address token) public view override(RescuableBase) returns (uint256) {
@@ -152,14 +227,33 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     return amount;
   }
 
-  function _transferTokensIn(address fromToken, uint256 amount) internal {
-    ICollector(COLLECTOR).transfer(IERC20(fromToken), address(this), amount);
+  function _transferTokensTo(address fromToken, address to, uint256 amount) internal {
+    ICollector(COLLECTOR).transfer(IERC20(fromToken), to, amount);
+  }
+
+  /// @dev Internal function to validate a swap's parameters
+  function _validateSwap(
+    address fromToken,
+    address toToken,
+    address fromOracle,
+    address toOracle,
+    uint256 amount,
+    uint256 slippage
+  ) internal view {
+    if (slippage > MAX_SLIPPAGE) revert InvalidSlippage();
+
+    _validateCommon(fromToken, toToken, amount);
+
+    if (fromOracle == address(0) || toOracle == address(0)) revert OracleNotSet();
+    if (IAggregatorInterface(fromOracle).latestAnswer() == 0 || IAggregatorInterface(toOracle).latestAnswer() == 0) {
+      revert PriceFeedInvalidAnswer();
+    }
   }
 
   /// @dev Internal function to perform common validation of swaps
   function _validateCommon(address fromToken, address toToken, uint256 amount) internal view {
     if (amount == 0) revert InvalidZeroAmount();
-    if (!swapApprovedToken[fromToken][toToken]) {
+    if (!swapApprovedPair[fromToken][toToken]) {
       revert UnrecognizedTokenSwap();
     }
   }
