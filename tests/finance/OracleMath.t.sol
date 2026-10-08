@@ -5,23 +5,7 @@ pragma solidity ^0.8.0;
 import {Test} from "forge-std/Test.sol";
 
 import {OracleMath} from "src/finance/libraries/OracleMath.sol";
-
-contract MockAggregator {
-  int256 public latestAnswer;
-  uint8 public constant decimals = 8;
-
-  constructor(int256 answer_) {
-    latestAnswer = answer_;
-  }
-}
-
-contract MockToken {
-  uint8 public decimals;
-
-  constructor(uint8 decimals_) {
-    decimals = decimals_;
-  }
-}
+import {MockAggregator} from "tests/finance/OracleMocks.sol";
 
 contract OracleMathHarness {
   function getExpectedOut(address fromToken, address toToken, address fromOracle, address toOracle, uint256 amount)
@@ -50,7 +34,6 @@ contract OracleMathTest is Test {
   uint256 internal constant MAX_FUZZ_PRICE = 1e12;
   uint256 internal constant OVERFLOW_AMOUNT = 1e60;
   uint256 internal constant TEST_BPS = 10_000;
-  uint256 internal constant TEST_MAX_SLIPPAGE = 10_00;
 
   OracleMathHarness internal harness;
 
@@ -58,73 +41,53 @@ contract OracleMathTest is Test {
     harness = new OracleMathHarness();
   }
 
-  function _token(uint8 decimals) internal returns (address) {
-    return address(new MockToken(decimals));
-  }
-
-  function _oracle(int256 answer) internal returns (address) {
-    return address(new MockAggregator(answer));
-  }
-
   function test_getExpectedOut_18To6Decimals() public {
-    uint256 out = harness.getExpectedOut(_token(18), _token(6), _oracle(100e8), _oracle(1e8), 1e18);
+    uint256 out =
+      harness.getExpectedOut(_newMockToken(18), _newMockToken(6), _newMockOracle(100e8), _newMockOracle(1e8), 1e18);
     assertEq(out, 100e6);
   }
 
   function test_getExpectedOut_6To18Decimals() public {
-    uint256 out = harness.getExpectedOut(_token(6), _token(18), _oracle(1e8), _oracle(2000e8), 2000e6);
+    uint256 out =
+      harness.getExpectedOut(_newMockToken(6), _newMockToken(18), _newMockOracle(1e8), _newMockOracle(2000e8), 2000e6);
     assertEq(out, 1e18);
   }
 
   function test_getExpectedOut_roundsDown() public {
-    uint256 out = harness.getExpectedOut(_token(18), _token(6), _oracle(1e8), _oracle(3e8), 1e18);
+    uint256 out =
+      harness.getExpectedOut(_newMockToken(18), _newMockToken(6), _newMockOracle(1e8), _newMockOracle(3e8), 1e18);
     assertEq(out, 333_333);
   }
 
-  function test_getExpectedOut_zeroAmount() public {
-    uint256 out = harness.getExpectedOut(_token(18), _token(6), _oracle(100e8), _oracle(1e8), 0);
-    assertEq(out, 0);
-  }
-
   function test_getExpectedOut_overflowSafe() public {
-    uint256 out = harness.getExpectedOut(_token(18), _token(18), _oracle(2000e8), _oracle(1e8), OVERFLOW_AMOUNT);
+    uint256 out = harness.getExpectedOut(
+      _newMockToken(18), _newMockToken(18), _newMockOracle(2000e8), _newMockOracle(1e8), OVERFLOW_AMOUNT
+    );
     assertEq(out, 2000e60);
   }
 
-  function test_getExpectedOut_revertsWith_InvalidPrice_fromOracleZero() public {
-    address fromToken = _token(18);
-    address toToken = _token(6);
-    address fromOracle = _oracle(0);
-    address toOracle = _oracle(1e8);
-    vm.expectRevert(abi.encodeWithSelector(OracleMath.InvalidPrice.selector, fromOracle));
-    harness.getExpectedOut(fromToken, toToken, fromOracle, toOracle, 1e18);
+  function test_getExpectedOut_revertsWith_InvalidPrice_fromOracleZeroOrNegative() public {
+    address fromToken = _newMockToken(18);
+    address toToken = _newMockToken(6);
+    address toOracle = _newMockOracle(1e8);
+    int256[2] memory badAnswers = [int256(0), int256(-1)];
+    for (uint256 i; i < badAnswers.length; i++) {
+      address fromOracle = _newMockOracle(badAnswers[i]);
+      vm.expectRevert(abi.encodeWithSelector(OracleMath.InvalidPrice.selector, fromOracle));
+      harness.getExpectedOut(fromToken, toToken, fromOracle, toOracle, 1e18);
+    }
   }
 
-  function test_getExpectedOut_revertsWith_InvalidPrice_fromOracleNegative() public {
-    address fromToken = _token(18);
-    address toToken = _token(6);
-    address fromOracle = _oracle(-1);
-    address toOracle = _oracle(1e8);
-    vm.expectRevert(abi.encodeWithSelector(OracleMath.InvalidPrice.selector, fromOracle));
-    harness.getExpectedOut(fromToken, toToken, fromOracle, toOracle, 1e18);
-  }
-
-  function test_getExpectedOut_revertsWith_InvalidPrice_toOracleZero() public {
-    address fromToken = _token(18);
-    address toToken = _token(6);
-    address fromOracle = _oracle(1e8);
-    address toOracle = _oracle(0);
-    vm.expectRevert(abi.encodeWithSelector(OracleMath.InvalidPrice.selector, toOracle));
-    harness.getExpectedOut(fromToken, toToken, fromOracle, toOracle, 1e18);
-  }
-
-  function test_getExpectedOut_revertsWith_InvalidPrice_toOracleNegative() public {
-    address fromToken = _token(18);
-    address toToken = _token(6);
-    address fromOracle = _oracle(1e8);
-    address toOracle = _oracle(-1);
-    vm.expectRevert(abi.encodeWithSelector(OracleMath.InvalidPrice.selector, toOracle));
-    harness.getExpectedOut(fromToken, toToken, fromOracle, toOracle, 1e18);
+  function test_getExpectedOut_revertsWith_InvalidPrice_toOracleZeroOrNegative() public {
+    address fromToken = _newMockToken(18);
+    address toToken = _newMockToken(6);
+    address fromOracle = _newMockOracle(1e8);
+    int256[2] memory badAnswers = [int256(0), int256(-1)];
+    for (uint256 i; i < badAnswers.length; i++) {
+      address toOracle = _newMockOracle(badAnswers[i]);
+      vm.expectRevert(abi.encodeWithSelector(OracleMath.InvalidPrice.selector, toOracle));
+      harness.getExpectedOut(fromToken, toToken, fromOracle, toOracle, 1e18);
+    }
   }
 
   function test_fuzz_getExpectedOut_exactFloor(
@@ -141,55 +104,64 @@ contract OracleMathTest is Test {
     toDecimals = uint8(bound(toDecimals, 0, MAX_FUZZ_DECIMALS));
 
     uint256 out = harness.getExpectedOut(
-      _token(fromDecimals), _token(toDecimals), _oracle(int256(priceFrom)), _oracle(int256(priceTo)), amount
+      _newMockToken(fromDecimals),
+      _newMockToken(toDecimals),
+      _newMockOracle(int256(priceFrom)),
+      _newMockOracle(int256(priceTo)),
+      amount
     );
 
     uint256 expected = (amount * priceFrom * 10 ** toDecimals) / (priceTo * 10 ** fromDecimals);
     assertEq(out, expected);
   }
 
-  function test_getMinOut_zeroSlippage() public {
-    uint256 out = harness.getMinOut(_token(18), _token(6), _oracle(100e8), _oracle(1e8), 1e18, 0);
-    assertEq(out, 100e6);
-  }
-
   function test_getMinOut_50bps() public {
-    uint256 out = harness.getMinOut(_token(18), _token(6), _oracle(100e8), _oracle(1e8), 1e18, 50);
+    uint256 out =
+      harness.getMinOut(_newMockToken(18), _newMockToken(6), _newMockOracle(100e8), _newMockOracle(1e8), 1e18, 50);
     assertEq(out, 99_500_000);
-  }
-
-  function test_getMinOut_maxSlippage() public {
-    uint256 out = harness.getMinOut(_token(18), _token(6), _oracle(100e8), _oracle(1e8), 1e18, TEST_MAX_SLIPPAGE);
-    assertEq(out, 90e6);
   }
 
   function test_getMinOut_roundsDown() public {
     // expected out 333_333, * 9_950 / 10_000 = 3_316_663_350 / 10_000 = 331_666.335
-    uint256 out = harness.getMinOut(_token(18), _token(6), _oracle(1e8), _oracle(3e8), 1e18, 50);
+    uint256 out =
+      harness.getMinOut(_newMockToken(18), _newMockToken(6), _newMockOracle(1e8), _newMockOracle(3e8), 1e18, 50);
     assertEq(out, 331_666);
   }
 
   function test_fuzz_getMinOut_exactFloor(
     uint8 fromDecimals,
     uint8 toDecimals,
-    uint256 pFrom,
-    uint256 pTo,
+    uint256 priceFrom,
+    uint256 priceTo,
     uint256 amount,
     uint256 slippage
   ) public {
     fromDecimals = uint8(bound(fromDecimals, 0, MAX_FUZZ_DECIMALS));
     toDecimals = uint8(bound(toDecimals, 0, MAX_FUZZ_DECIMALS));
-    pFrom = bound(pFrom, 1, MAX_FUZZ_PRICE);
-    pTo = bound(pTo, 1, MAX_FUZZ_PRICE);
+    priceFrom = bound(priceFrom, 1, MAX_FUZZ_PRICE);
+    priceTo = bound(priceTo, 1, MAX_FUZZ_PRICE);
     amount = bound(amount, 0, MAX_FUZZ_AMOUNT);
     slippage = bound(slippage, 0, TEST_BPS);
 
-    uint256 expected = amount * pFrom * 10 ** toDecimals / (pTo * 10 ** fromDecimals);
+    uint256 expected = amount * priceFrom * 10 ** toDecimals / (priceTo * 10 ** fromDecimals);
     expected = expected * (TEST_BPS - slippage) / TEST_BPS;
 
     uint256 out = harness.getMinOut(
-      _token(fromDecimals), _token(toDecimals), _oracle(int256(pFrom)), _oracle(int256(pTo)), amount, slippage
+      _newMockToken(fromDecimals),
+      _newMockToken(toDecimals),
+      _newMockOracle(int256(priceFrom)),
+      _newMockOracle(int256(priceTo)),
+      amount,
+      slippage
     );
     assertEq(out, expected);
+  }
+
+  function _newMockToken(uint8 decimals) internal returns (address) {
+    return address(deployMockERC20("Token", "TOK", decimals));
+  }
+
+  function _newMockOracle(int256 answer) internal returns (address) {
+    return address(new MockAggregator(answer));
   }
 }

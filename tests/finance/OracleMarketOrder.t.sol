@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 
 import {OracleMarketOrder} from "src/finance/OracleMarketOrder.sol";
 import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
+import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
+import {MockAggregator} from "tests/finance/OracleMocks.sol";
 
 contract MockSequencerFeed {
   int256 public answer;
@@ -20,28 +22,6 @@ contract MockSequencerFeed {
   }
 }
 
-contract MockAggregator {
-  int256 public latestAnswer;
-  uint8 public constant decimals = 8;
-
-  constructor(int256 answer_) {
-    latestAnswer = answer_;
-  }
-}
-
-contract MockToken {
-  uint8 public decimals;
-  mapping(address => uint256) public balanceOf;
-
-  constructor(uint8 decimals_) {
-    decimals = decimals_;
-  }
-
-  function setBalance(address account, uint256 amount) external {
-    balanceOf[account] = amount;
-  }
-}
-
 /**
  * @dev Test for OracleMarketOrder handler
  * command: forge test -vvv --match-path tests/finance/OracleMarketOrder.t.sol
@@ -52,6 +32,9 @@ contract OracleMarketOrderTest is Test {
   uint32 internal constant VALID_UNTIL = uint32(NOW + 1 days);
   uint256 internal constant SELL_AMOUNT = 1e18;
   address internal constant OWNER = address(0x0FFE);
+  address internal constant RECEIVER = address(0xC011);
+  bytes32 internal constant APP_DATA = keccak256("appData");
+  uint256 internal constant EXPECTED_BUY_AMOUNT = 99e6;
 
   OracleMarketOrder public handler;
   MockSequencerFeed public sequencerFeed;
@@ -71,23 +54,28 @@ contract OracleMarketOrderTest is Test {
   }
 
   function _staticInput(int256 fromPrice, int256 toPrice, uint256 ownerBalance) internal returns (bytes memory) {
-    MockToken fromToken = new MockToken(18);
-    fromToken.setBalance(OWNER, ownerBalance);
-    return abi.encode(
-      OracleMarketOrder.Data({
-        fromToken: address(fromToken),
-        toToken: address(new MockToken(6)),
-        fromOracle: address(new MockAggregator(fromPrice)),
-        toOracle: address(new MockAggregator(toPrice)),
-        receiver: address(0xC011),
-        sellAmount: SELL_AMOUNT,
-        slippage: 100,
-        appData: bytes32(0),
-        validUntil: VALID_UNTIL,
-        sequencerUptimeFeed: address(sequencerFeed),
-        sequencerGracePeriod: GRACE_PERIOD
-      })
-    );
+    return abi.encode(_data(fromPrice, toPrice, ownerBalance));
+  }
+
+  function _data(int256 fromPrice, int256 toPrice, uint256 ownerBalance)
+    internal
+    returns (OracleMarketOrder.Data memory)
+  {
+    address fromToken = address(deployMockERC20("From", "FROM", 18));
+    deal(fromToken, OWNER, ownerBalance);
+    return OracleMarketOrder.Data({
+      fromToken: fromToken,
+      toToken: address(deployMockERC20("To", "TO", 6)),
+      fromOracle: address(new MockAggregator(fromPrice)),
+      toOracle: address(new MockAggregator(toPrice)),
+      receiver: RECEIVER,
+      sellAmount: SELL_AMOUNT,
+      slippage: 100,
+      appData: APP_DATA,
+      validUntil: VALID_UNTIL,
+      sequencerUptimeFeed: address(sequencerFeed),
+      sequencerGracePeriod: GRACE_PERIOD
+    });
   }
 
   function _expectPoll(bytes memory err) internal {
@@ -96,21 +84,25 @@ contract OracleMarketOrderTest is Test {
     handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "");
   }
 
-  function test_supportsInterface() public {}
+  function test_getTradeableOrder() public {
+    sequencerFeed.set(0, NOW - GRACE_PERIOD - 1);
+    OracleMarketOrder.Data memory data = _data(100e8, 1e8, SELL_AMOUNT);
 
-  function test_getTradeableOrder() public {}
+    GPv2Order.Data memory order = handler.getTradeableOrder(OWNER, address(0), bytes32(0), abi.encode(data), "");
 
-  function test_getTradeableOrder_decimals() public {}
-
-  function test_getTradeableOrder_receiverIsStaticInputReceiver() public {}
-
-  function test_getTradeableOrder_feeAmountIsZero() public {}
-
-  function test_getTradeableOrder_appDataPinned() public {}
-
-  function test_fuzz_getTradeableOrder_slippage() public {}
-
-  function test_getTradeableOrder_slippageCap() public {}
+    assertEq(address(order.sellToken), data.fromToken);
+    assertEq(address(order.buyToken), data.toToken);
+    assertEq(order.receiver, RECEIVER);
+    assertEq(order.sellAmount, SELL_AMOUNT);
+    assertEq(order.buyAmount, EXPECTED_BUY_AMOUNT);
+    assertEq(order.validTo, VALID_UNTIL);
+    assertEq(order.appData, APP_DATA);
+    assertEq(order.feeAmount, 0);
+    assertEq(order.kind, keccak256("sell"));
+    assertFalse(order.partiallyFillable);
+    assertEq(order.sellTokenBalance, keccak256("erc20"));
+    assertEq(order.buyTokenBalance, keccak256("erc20"));
+  }
 
   function test_getTradeableOrder_validToIsValidUntil() public {
     sequencerFeed.set(0, NOW - GRACE_PERIOD - 1);
@@ -134,23 +126,25 @@ contract OracleMarketOrderTest is Test {
     handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "");
   }
 
-  function test_getTradeableOrder_revertsIf_invalidPrice() public {}
-
-  function test_getTradeableOrder_revertsIf_zeroBuyAmount() public {}
-
-  function _expectInvalidOraclePrice(int256 fromPrice, int256 toPrice) internal {
+  function test_getTradeableOrder_revertsIf_zeroBuyAmount() public {
     sequencerFeed.set(0, NOW - GRACE_PERIOD - 1);
-    bytes memory input = _staticInput(fromPrice, toPrice);
-    vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.PollTryNextBlock.selector, "invalid oracle price"));
+    bytes memory input = _staticInput(1, 1e8 * 1e8, SELL_AMOUNT);
+    vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, "zero buy amount"));
     handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "");
   }
 
-  function test_getTradeableOrder_revertsIf_fromOraclePriceZero() public {
-    _expectInvalidOraclePrice(0, 1e8);
+  function test_getTradeableOrder_revertsIf_fromOraclePriceZeroOrNegative() public {
+    int256[2] memory badAnswers = [int256(0), int256(-1)];
+    for (uint256 i; i < badAnswers.length; i++) {
+      _expectInvalidOraclePrice(badAnswers[i], 1e8);
+    }
   }
 
-  function test_getTradeableOrder_revertsIf_toOraclePriceNegative() public {
-    _expectInvalidOraclePrice(100e8, -1);
+  function test_getTradeableOrder_revertsIf_toOraclePriceZeroOrNegative() public {
+    int256[2] memory badAnswers = [int256(0), int256(-1)];
+    for (uint256 i; i < badAnswers.length; i++) {
+      _expectInvalidOraclePrice(100e8, badAnswers[i]);
+    }
   }
 
   function test_getTradeableOrder_revertsIf_sequencerDown() public {
@@ -178,11 +172,19 @@ contract OracleMarketOrderTest is Test {
     _expectPoll(abi.encodeWithSelector(IConditionalOrder.PollTryNextBlock.selector, "invalid sequencer timestamp"));
   }
 
-  function test_getTradeableOrder_noSequencerFeed() public {}
+  function test_getTradeableOrder_noSequencerFeed() public {
+    OracleMarketOrder.Data memory data = _data(100e8, 1e8, SELL_AMOUNT);
+    data.sequencerUptimeFeed = address(0);
 
-  function test_verify() public {}
+    GPv2Order.Data memory order = handler.getTradeableOrder(OWNER, address(0), bytes32(0), abi.encode(data), "");
 
-  function test_verify_revertsIf_invalidHash() public {}
+    assertEq(order.buyAmount, EXPECTED_BUY_AMOUNT);
+  }
 
-  function test_verify_revertsIf_afterOracleRoundChange() public {}
+  function _expectInvalidOraclePrice(int256 fromPrice, int256 toPrice) internal {
+    sequencerFeed.set(0, NOW - GRACE_PERIOD - 1);
+    bytes memory input = _staticInput(fromPrice, toPrice);
+    vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.PollTryNextBlock.selector, "invalid oracle price"));
+    handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "");
+  }
 }

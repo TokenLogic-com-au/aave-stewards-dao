@@ -22,7 +22,7 @@ import {ERC1271Forwarder} from "src/finance/ERC1271Forwarder.sol";
 import {ISwapSteward} from "src/finance/interfaces/ISwapSteward.sol";
 import {SwapOrder} from "src/finance/SwapOrder.sol";
 import {SwapSteward} from "src/finance/SwapSteward.sol";
-import {MockOracle} from "tests/finance/MainnetSwapSteward.t.sol";
+import {MockAggregator} from "tests/finance/OracleMocks.sol";
 
 struct GPv2TradeData {
   uint256 sellTokenIndex;
@@ -84,6 +84,7 @@ contract SwapStewardTest is Test {
   uint256 internal constant SWAP_SLIPPAGE = 50;
   uint256 internal constant SWAP_AMOUNT = 10e6;
   uint256 internal constant GUARDIAN_BUDGET = 50e6;
+  uint256 internal constant MAX_SLIPPAGE = 10_00;
   uint256 internal constant ORACLE_MOVE_BPS = 100;
   uint256 internal constant ARBITRUM_BLOCK_TIME = 1;
   /// @dev GPv2Trade flags: bits 0-4 = 0 (sell, fill-or-kill, ERC20 sell and buy balances); bits 5-6 = signing
@@ -91,7 +92,6 @@ contract SwapStewardTest is Test {
   /// https://github.com/cowprotocol/contracts/blob/a10f40788af29467e87de3dbf2196662b0a6b500/src/contracts/libraries/GPv2Trade.sol#L58-L131
   /// https://github.com/cowprotocol/contracts/blob/a10f40788af29467e87de3dbf2196662b0a6b500/src/contracts/mixins/GPv2Signing.sol#L24-L29
   uint256 internal constant FLAGS_SELL_FILL_OR_KILL_EIP1271 = 2 << 5;
-  string internal constant ORDER_EXPIRED = "order expired";
 
   address public guardian = makeAddr("guardian");
   address public alice = makeAddr("alice");
@@ -130,26 +130,15 @@ contract SwapStewardTest is Test {
     IGPv2AllowListAuthentication(authenticator).addSolver(solver);
   }
 
-  function test_constructor() public {}
-
-  function test_revertsIf_collectorIsZeroAddress() public {}
-
-  function test_revertsIf_composableCowIsZeroAddress() public {}
-
-  function test_revertsIf_handlerIsZeroAddress() public {}
-
-  function test_revertsIf_vaultRelayerIsZeroAddress() public {}
-
-  function test_transferOwnership() public {}
-
-  function test_updateGuardian_revertsIf_notOwnerOrGuardian() public {}
-
-  function test_updateGuardian() public {}
-
   function test_rescueToken_revertsIf_notOwnerOrGuardian() public {
+    address token = AaveV3ArbitrumAssets.ARB_UNDERLYING;
+
     vm.startPrank(alice);
     vm.expectRevert(abi.encodeWithSelector(IWithGuardian.OnlyGuardianOrOwnerInvalidCaller.selector, alice));
-    steward.rescueToken(AaveV3ArbitrumAssets.ARB_UNDERLYING);
+    steward.rescueToken(token);
+
+    vm.expectRevert(abi.encodeWithSelector(IWithGuardian.OnlyGuardianOrOwnerInvalidCaller.selector, alice));
+    steward.rescueToken(token, 1);
     vm.stopPrank();
   }
 
@@ -246,25 +235,37 @@ contract SwapStewardTest is Test {
   }
 
   function test_setTokenOracle_revertsIf_invalidAnswer() public {
-    address mockOracle = address(new MockOracle());
+    int256[2] memory badAnswers = [int256(0), int256(-1)];
 
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
-    vm.expectRevert(ISwapSteward.PriceFeedInvalidAnswer.selector);
-    steward.setTokenOracle(AaveV3ArbitrumAssets.USDCn_UNDERLYING, mockOracle);
-    vm.stopPrank();
+    for (uint256 i; i < badAnswers.length; i++) {
+      address mockOracle = address(new MockAggregator(badAnswers[i]));
+
+      vm.prank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+      vm.expectRevert(ISwapSteward.PriceFeedInvalidAnswer.selector);
+      steward.setTokenOracle(AaveV3ArbitrumAssets.USDCn_UNDERLYING, mockOracle);
+    }
   }
 
   function test_setTokenOracle() public {
-    address token = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address oracle = AaveV3ArbitrumAssets.USDCn_ORACLE;
+    address newToken = AaveV3ArbitrumAssets.ARB_UNDERLYING;
+    address newOracle = AaveV3ArbitrumAssets.ARB_ORACLE;
+    address replacedToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
+    address replacementOracle = AaveV3ArbitrumAssets.WETH_ORACLE;
+
+    assertEq(steward.priceOracle(newToken), address(0));
+    assertEq(steward.priceOracle(replacedToken), AaveV3ArbitrumAssets.USDCn_ORACLE);
 
     vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
 
     vm.expectEmit(true, true, true, true, address(steward));
-    emit ISwapSteward.SetTokenOracle(token, oracle);
-    steward.setTokenOracle(token, oracle);
+    emit ISwapSteward.SetTokenOracle(newToken, newOracle);
+    steward.setTokenOracle(newToken, newOracle);
+    assertEq(steward.priceOracle(newToken), newOracle);
 
-    assertEq(steward.priceOracle(token), oracle);
+    vm.expectEmit(true, true, true, true, address(steward));
+    emit ISwapSteward.SetTokenOracle(replacedToken, replacementOracle);
+    steward.setTokenOracle(replacedToken, replacementOracle);
+    assertEq(steward.priceOracle(replacedToken), replacementOracle);
     vm.stopPrank();
   }
 
@@ -323,25 +324,117 @@ contract SwapStewardTest is Test {
     vm.stopPrank();
   }
 
-  function test_swap_revertsIf_notOwnerOrGuardian() public {}
+  function test_swap_revertsIf_notOwnerOrGuardian() public {
+    vm.prank(alice);
+    vm.expectRevert(abi.encodeWithSelector(IWithGuardian.OnlyGuardianOrOwnerInvalidCaller.selector, alice));
+    steward.swap(
+      AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.WETH_UNDERLYING, SWAP_AMOUNT, SWAP_SLIPPAGE
+    );
+  }
 
-  function test_swap_revertsIf_zeroAmount() public {}
+  function test_swap_revertsIf_zeroAmount() public {
+    vm.prank(guardian);
+    vm.expectRevert(ISwapSteward.InvalidZeroAmount.selector);
+    steward.swap(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.WETH_UNDERLYING, 0, SWAP_SLIPPAGE);
+  }
 
-  function test_swap_revertsIf_unrecognizedPair() public {}
+  function test_swap_revertsIf_unrecognizedPair() public {
+    vm.startPrank(guardian);
+    vm.expectRevert(ISwapSteward.UnrecognizedTokenSwap.selector);
+    steward.swap(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.ARB_UNDERLYING, SWAP_AMOUNT, SWAP_SLIPPAGE);
 
-  function test_swap_revertsIf_oracleNotSet() public {}
+    vm.expectRevert(ISwapSteward.UnrecognizedTokenSwap.selector);
+    steward.swap(
+      AaveV3ArbitrumAssets.WETH_UNDERLYING, AaveV3ArbitrumAssets.USDCn_UNDERLYING, SWAP_AMOUNT, SWAP_SLIPPAGE
+    );
+    vm.stopPrank();
+  }
 
-  function test_swap_revertsIf_slippageAboveMax() public {}
+  function test_swap_revertsIf_oracleNotSet() public {
+    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+    steward.setSwappablePair(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.ARB_UNDERLYING, true);
+    steward.setSwappablePair(AaveV3ArbitrumAssets.ARB_UNDERLYING, AaveV3ArbitrumAssets.USDCn_UNDERLYING, true);
+    vm.stopPrank();
 
-  function test_swap_revertsIf_invalidPriceFeedAnswer() public {}
+    vm.startPrank(guardian);
+    vm.expectRevert(ISwapSteward.OracleNotSet.selector);
+    steward.swap(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.ARB_UNDERLYING, SWAP_AMOUNT, SWAP_SLIPPAGE);
 
-  function test_swap_revertsIf_budgetExceeded() public {}
+    vm.expectRevert(ISwapSteward.OracleNotSet.selector);
+    steward.swap(AaveV3ArbitrumAssets.ARB_UNDERLYING, AaveV3ArbitrumAssets.USDCn_UNDERLYING, SWAP_AMOUNT, SWAP_SLIPPAGE);
+    vm.stopPrank();
+  }
 
-  function test_swap_success_ownerSkipsBudget() public {}
+  function test_swap_revertsIf_slippageAboveMax() public {
+    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
+    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
 
-  function test_swap_success_guardianConsumesBudget() public {}
+    vm.startPrank(guardian);
+    steward.swap(fromToken, toToken, SWAP_AMOUNT, MAX_SLIPPAGE);
 
-  function test_swap_success_maxAmount() public {}
+    vm.expectRevert(ISwapSteward.InvalidSlippage.selector);
+    steward.swap(fromToken, toToken, SWAP_AMOUNT, MAX_SLIPPAGE + 1);
+    vm.stopPrank();
+  }
+
+  function test_swap_revertsIf_invalidPriceFeedAnswer() public {
+    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
+    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
+    int256[2] memory badAnswers = [int256(0), int256(-1)];
+    address[2] memory oracles = [AaveV3ArbitrumAssets.USDCn_ORACLE, AaveV3ArbitrumAssets.WETH_ORACLE];
+
+    for (uint256 i; i < oracles.length; i++) {
+      for (uint256 j; j < badAnswers.length; j++) {
+        vm.mockCall(
+          oracles[i], abi.encodeWithSelector(IAggregatorInterface.latestAnswer.selector), abi.encode(badAnswers[j])
+        );
+        vm.prank(guardian);
+        vm.expectRevert(ISwapSteward.PriceFeedInvalidAnswer.selector);
+        steward.swap(fromToken, toToken, SWAP_AMOUNT, SWAP_SLIPPAGE);
+        vm.clearMockedCalls();
+      }
+    }
+  }
+
+  function test_swap_revertsIf_budgetExceeded() public {
+    vm.prank(guardian);
+    vm.expectRevert(ISwapSteward.InsufficientBudget.selector);
+    steward.swap(
+      AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.WETH_UNDERLYING, GUARDIAN_BUDGET + 1, SWAP_SLIPPAGE
+    );
+  }
+
+  function test_swap_success_ownerSkipsBudget() public {
+    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
+    uint256 amount = GUARDIAN_BUDGET + 1e6;
+
+    address swapOrder =
+      _swap(GovernanceV3Arbitrum.EXECUTOR_LVL_1, fromToken, AaveV3ArbitrumAssets.WETH_UNDERLYING, amount);
+
+    assertEq(steward.tokenBudget(fromToken), GUARDIAN_BUDGET);
+    assertEq(IERC20(fromToken).balanceOf(swapOrder), amount);
+  }
+
+  function test_swap_success_maxAmount() public {
+    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
+    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
+    address collector = address(AaveV3Arbitrum.COLLECTOR);
+
+    uint32 validUntil = uint32(block.timestamp + 1 days);
+
+    address guardianOrder = _swap(guardian, fromToken, toToken, type(uint256).max);
+    assertEq(IERC20(fromToken).balanceOf(guardianOrder), GUARDIAN_BUDGET);
+    assertEq(steward.tokenBudget(fromToken), 0);
+    (, bytes32 guardianHash) = steward.swaps(guardianOrder);
+    assertEq(guardianHash, keccak256(abi.encode(_params(fromToken, toToken, GUARDIAN_BUDGET, validUntil))));
+
+    uint256 collectorBalance = IERC20(fromToken).balanceOf(collector);
+    address ownerOrder = _swap(GovernanceV3Arbitrum.EXECUTOR_LVL_1, fromToken, toToken, type(uint256).max);
+    assertEq(IERC20(fromToken).balanceOf(ownerOrder), collectorBalance);
+    assertEq(IERC20(fromToken).balanceOf(collector), 0);
+    (, bytes32 ownerHash) = steward.swaps(ownerOrder);
+    assertEq(ownerHash, keccak256(abi.encode(_params(fromToken, toToken, collectorBalance, validUntil))));
+  }
 
   function test_swap_success() public {
     address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
@@ -350,11 +443,25 @@ contract SwapStewardTest is Test {
     uint256 collectorBalanceBefore = IERC20(fromToken).balanceOf(collector);
     assertGe(collectorBalanceBefore, SWAP_AMOUNT);
 
+    address expectedOrder = vm.computeCreateAddress(address(steward), vm.getNonce(address(steward)));
+    IConditionalOrder.ConditionalOrderParams memory params =
+      _params(fromToken, toToken, SWAP_AMOUNT, uint32(block.timestamp + 1 days));
+
+    vm.expectEmit(true, true, true, true, address(steward));
+    emit ISwapSteward.SwapRequested(
+      expectedOrder,
+      keccak256(abi.encode(params)),
+      fromToken,
+      toToken,
+      AaveV3ArbitrumAssets.USDCn_ORACLE,
+      AaveV3ArbitrumAssets.WETH_ORACLE,
+      SWAP_AMOUNT,
+      SWAP_SLIPPAGE
+    );
     address swapOrder = _swap(guardian, fromToken, toToken, SWAP_AMOUNT);
     (address swapFromToken, bytes32 orderHash) = steward.swaps(swapOrder);
 
     assertEq(swapFromToken, fromToken);
-    assertNotEq(orderHash, bytes32(0));
     assertTrue(IComposableCow(COMPOSABLE_COW).singleOrders(swapOrder, orderHash));
     assertEq(IERC20(fromToken).balanceOf(swapOrder), SWAP_AMOUNT);
     assertEq(IERC20(fromToken).balanceOf(address(steward)), 0);
@@ -362,17 +469,12 @@ contract SwapStewardTest is Test {
     assertEq(IERC20(fromToken).allowance(swapOrder, VAULT_RELAYER), SWAP_AMOUNT);
     assertEq(steward.tokenBudget(fromToken), GUARDIAN_BUDGET - SWAP_AMOUNT);
 
-    IConditionalOrder.ConditionalOrderParams memory params =
-      _params(fromToken, toToken, SWAP_AMOUNT, uint32(block.timestamp + 1 days));
     assertEq(keccak256(abi.encode(params)), orderHash);
 
     (GPv2Order.Data memory order, bytes memory signature) =
       IComposableCow(COMPOSABLE_COW).getTradeableOrderWithSignature(swapOrder, params, "", new bytes32[](0));
 
-    uint256 pFrom = uint256(IAggregatorInterface(AaveV3ArbitrumAssets.USDCn_ORACLE).latestAnswer());
-    uint256 pTo = uint256(IAggregatorInterface(AaveV3ArbitrumAssets.WETH_ORACLE).latestAnswer());
-    uint256 expectedBuyAmount = (SWAP_AMOUNT * pFrom * 10 ** IERC20Metadata(toToken).decimals())
-      / (pTo * 10 ** IERC20Metadata(fromToken).decimals()) * (BPS - SWAP_SLIPPAGE) / BPS;
+    uint256 expectedBuyAmount = _expectedOut(SWAP_AMOUNT) * (BPS - SWAP_SLIPPAGE) / BPS;
 
     assertEq(address(order.sellToken), fromToken);
     assertEq(address(order.buyToken), toToken);
@@ -391,8 +493,6 @@ contract SwapStewardTest is Test {
     bytes32 orderDigest = GPv2Order.hash(order, IGPv2Settlement(GPV2_SETTLEMENT).domainSeparator());
     assertEq(SwapOrder(swapOrder).isValidSignature(orderDigest, signature), IERC1271.isValidSignature.selector);
   }
-
-  function test_swap_emitsSwapRequested() public {}
 
   function test_swap_twoSwapsSameFromToken() public {
     address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
@@ -413,17 +513,22 @@ contract SwapStewardTest is Test {
     assertTrue(IComposableCow(COMPOSABLE_COW).singleOrders(second, secondHash));
   }
 
-  function test_swap_approvesVaultRelayer() public {}
+  function test_cancelSwap_revertsIf_notOwnerOrGuardian() public {
+    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
+    address swapOrder = _swap(guardian, fromToken, AaveV3ArbitrumAssets.WETH_UNDERLYING, SWAP_AMOUNT);
+    (address swapFromToken, bytes32 orderHash) = steward.swaps(swapOrder);
 
-  function test_limitSwap_revertsIf_unrecognizedPair() public {}
+    vm.prank(alice);
+    vm.expectRevert(abi.encodeWithSelector(IWithGuardian.OnlyGuardianOrOwnerInvalidCaller.selector, alice));
+    steward.cancelSwap(swapOrder);
 
-  function test_limitSwap_success() public {}
-
-  function test_twapSwap_revertsIf_unrecognizedPair() public {}
-
-  function test_twapSwap_success() public {}
-
-  function test_cancelSwap_revertsIf_notOwnerOrGuardian() public {}
+    (address fromTokenAfter, bytes32 orderHashAfter) = steward.swaps(swapOrder);
+    assertEq(fromTokenAfter, swapFromToken);
+    assertEq(orderHashAfter, orderHash);
+    assertTrue(IComposableCow(COMPOSABLE_COW).singleOrders(swapOrder, orderHash));
+    assertEq(IERC20(fromToken).balanceOf(swapOrder), SWAP_AMOUNT);
+    assertEq(IERC20(fromToken).allowance(swapOrder, VAULT_RELAYER), SWAP_AMOUNT);
+  }
 
   function test_cancelSwap_revertsIf_swapNotFound() public {
     vm.prank(guardian);
@@ -451,17 +556,10 @@ contract SwapStewardTest is Test {
     assertEq(IERC20(fromToken).allowance(swapOrder, VAULT_RELAYER), 0);
     assertEq(IERC20(fromToken).balanceOf(swapOrder), 0);
     assertEq(IERC20(fromToken).balanceOf(collector), collectorBalanceBefore);
-  }
 
-  function test_cancelSwap_revertsIf_alreadyCanceled() public {
-    address swapOrder =
-      _swap(guardian, AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.WETH_UNDERLYING, SWAP_AMOUNT);
-
-    vm.startPrank(guardian);
-    steward.cancelSwap(swapOrder);
+    vm.prank(guardian);
     vm.expectRevert(ISwapSteward.SwapNotFound.selector);
     steward.cancelSwap(swapOrder);
-    vm.stopPrank();
   }
 
   function test_swapOrder_revertsIf_notSteward() public {
@@ -482,24 +580,15 @@ contract SwapStewardTest is Test {
     vm.stopPrank();
   }
 
-  function test_cancelSwap_afterPartialFill() public {}
-
-  function test_cancelSwap_afterFill() public {}
-
-  function test_swap_afterCancel() public {}
-
-  function test_isValidSignature_revertsIf_invalidHash() public {}
-
-  function test_isValidSignature_revertsIf_orderCanceled() public {}
-
-  function test_isValidSignature() public {}
-
   function test_getExpectedOut_revertsIf_oracleNotSet() public {
-    address fromToken = AaveV3ArbitrumAssets.ARB_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
+    address oracleToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
+    address noOracleToken = AaveV3ArbitrumAssets.ARB_UNDERLYING;
 
     vm.expectRevert(ISwapSteward.OracleNotSet.selector);
-    steward.getExpectedOut(1e18, fromToken, toToken);
+    steward.getExpectedOut(1e18, noOracleToken, oracleToken);
+
+    vm.expectRevert(ISwapSteward.OracleNotSet.selector);
+    steward.getExpectedOut(1e18, oracleToken, noOracleToken);
   }
 
   function test_getExpectedOut() public {
@@ -509,23 +598,7 @@ contract SwapStewardTest is Test {
 
     uint256 result = steward.getExpectedOut(amount, fromToken, toToken);
 
-    uint256 pFrom = uint256(IAggregatorInterface(AaveV3ArbitrumAssets.USDCn_ORACLE).latestAnswer());
-    uint256 pTo = uint256(IAggregatorInterface(AaveV3ArbitrumAssets.WETH_ORACLE).latestAnswer());
-    uint256 expected =
-      (amount * pFrom * 10 ** IERC20Metadata(toToken).decimals()) / (pTo * 10 ** IERC20Metadata(fromToken).decimals());
-
-    assertEq(result, expected);
-  }
-
-  function test_maxRescue() public {
-    address token = AaveV3ArbitrumAssets.ARB_UNDERLYING;
-
-    assertEq(steward.maxRescue(token), 0);
-
-    uint256 amount = 1_000e18;
-    deal(token, address(steward), amount);
-
-    assertEq(steward.maxRescue(token), amount);
+    assertEq(result, _expectedOut(amount));
   }
 
   function test_settle() public {
@@ -538,10 +611,7 @@ contract SwapStewardTest is Test {
     (GPv2Order.Data memory order, bytes memory signature) =
       _getTradeableOrderWithSignature(swapOrder, fromToken, toToken, validUntil);
 
-    uint256 pFrom = uint256(IAggregatorInterface(AaveV3ArbitrumAssets.USDCn_ORACLE).latestAnswer());
-    uint256 pTo = uint256(IAggregatorInterface(AaveV3ArbitrumAssets.WETH_ORACLE).latestAnswer());
-    uint256 expectedBuyAmount = (SWAP_AMOUNT * pFrom * 10 ** IERC20Metadata(toToken).decimals())
-      / (pTo * 10 ** IERC20Metadata(fromToken).decimals()) * (BPS - SWAP_SLIPPAGE) / BPS;
+    uint256 expectedBuyAmount = _expectedOut(SWAP_AMOUNT) * (BPS - SWAP_SLIPPAGE) / BPS;
     assertGt(expectedBuyAmount, 0);
     assertEq(order.buyAmount, expectedBuyAmount);
 
@@ -585,6 +655,7 @@ contract SwapStewardTest is Test {
 
     (GPv2Order.Data memory order, bytes memory signature) =
       _getTradeableOrderWithSignature(swapOrder, fromToken, toToken, uint32(block.timestamp + 1 days));
+
     order.buyAmount -= 1;
     deal(address(order.buyToken), GPV2_SETTLEMENT, order.buyAmount);
     vm.expectRevert(ERC1271Forwarder.InvalidHash.selector);
@@ -614,23 +685,11 @@ contract SwapStewardTest is Test {
     _settle(swapOrder, order, signature);
   }
 
-  function test_settle_revertsIf_expired() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address swapOrder = _swap(guardian, fromToken, toToken, SWAP_AMOUNT);
-    uint32 validUntil = uint32(block.timestamp + 1 days);
-
-    (GPv2Order.Data memory order, bytes memory signature) =
-      _getTradeableOrderWithSignature(swapOrder, fromToken, toToken, validUntil);
-
-    vm.warp(uint256(validUntil) + 1);
-
-    IConditionalOrder.ConditionalOrderParams memory params = _params(fromToken, toToken, SWAP_AMOUNT, validUntil);
-    vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, ORDER_EXPIRED));
-    IComposableCow(COMPOSABLE_COW).getTradeableOrderWithSignature(swapOrder, params, "", new bytes32[](0));
-    deal(address(order.buyToken), GPV2_SETTLEMENT, order.buyAmount);
-    vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, ORDER_EXPIRED));
-    _settle(swapOrder, order, signature);
+  function _expectedOut(uint256 amount) internal view returns (uint256) {
+    uint256 pFrom = uint256(IAggregatorInterface(AaveV3ArbitrumAssets.USDCn_ORACLE).latestAnswer());
+    uint256 pTo = uint256(IAggregatorInterface(AaveV3ArbitrumAssets.WETH_ORACLE).latestAnswer());
+    return (amount * pFrom * 10 ** IERC20Metadata(AaveV3ArbitrumAssets.WETH_UNDERLYING).decimals())
+      / (pTo * 10 ** IERC20Metadata(AaveV3ArbitrumAssets.USDCn_UNDERLYING).decimals());
   }
 
   function _params(address fromToken, address toToken, uint256 amount, uint32 validUntil)

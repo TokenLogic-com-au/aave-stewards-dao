@@ -245,7 +245,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     _validateCommon(fromToken, toToken, amount);
 
     if (fromOracle == address(0) || toOracle == address(0)) revert OracleNotSet();
-    if (IAggregatorInterface(fromOracle).latestAnswer() == 0 || IAggregatorInterface(toOracle).latestAnswer() == 0) {
+    if (IAggregatorInterface(fromOracle).latestAnswer() <= 0 || IAggregatorInterface(toOracle).latestAnswer() <= 0) {
       revert PriceFeedInvalidAnswer();
     }
   }
