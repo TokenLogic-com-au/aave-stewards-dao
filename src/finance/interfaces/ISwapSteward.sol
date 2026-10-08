@@ -1,28 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
 
 interface ISwapSteward {
-  /// @dev Open swap owned by a SwapOrder clone
+  /// @dev Open swap owned by a SwapEscrow clone
   struct Swap {
     address fromToken;
     bytes32 orderHash;
-  }
-
-  /// @dev Static input of the upstream TWAP handler
-  struct TWAPData {
-    IERC20 sellToken;
-    IERC20 buyToken;
-    address receiver;
-    uint256 partSellAmount; // amount of sellToken to sell in each part
-    uint256 minPartLimit; // minimum amount of tokens to receive per part
-    uint256 t0;
-    uint256 n;
-    uint256 t;
-    uint256 span;
-    bytes32 appData;
   }
 
   /// @dev Slippage is too high
@@ -46,7 +31,10 @@ interface ISwapSteward {
   /// @dev Oracle is returning unexpected value
   error PriceFeedInvalidAnswer();
 
-  /// @dev There is no open swap owned by the order
+  /// @dev Start time of the TWAP is in the past
+  error StartTimeInPast();
+
+  /// @dev There is no open swap owned by the escrow
   error SwapNotFound();
 
   /// @dev Token pair has not been set for swapping
@@ -69,7 +57,7 @@ interface ISwapSteward {
   event UpdatedTokenBudget(address indexed token, uint256 budget);
 
   /// @notice Emitted when an oracle market swap is requested
-  /// @param order The SwapOrder clone that owns the swap
+  /// @param escrow The SwapEscrow clone that owns the swap
   /// @param orderHash Hash of the conditional order on ComposableCoW
   /// @param fromToken The token to swap from
   /// @param toToken The token to swap to
@@ -78,7 +66,7 @@ interface ISwapSteward {
   /// @param amount The amount of fromToken to swap
   /// @param slippage The maximum allowed slippage for the swap
   event SwapRequested(
-    address indexed order,
+    address indexed escrow,
     bytes32 orderHash,
     address indexed fromToken,
     address indexed toToken,
@@ -99,18 +87,21 @@ interface ISwapSteward {
   );
 
   /// @notice Emitted when a TWAP swap is requested
+  /// @param escrow The SwapEscrow clone that owns the swap
   /// @param orderHash Hash of the conditional order on ComposableCoW
   /// @param fromToken The token to swap from
   /// @param toToken The token to swap to
   /// @param totalAmount The total amount of fromToken to swap
-  event TWAPSwapRequested(bytes32 orderHash, address indexed fromToken, address indexed toToken, uint256 totalAmount);
+  event TWAPSwapRequested(
+    address indexed escrow, bytes32 orderHash, address indexed fromToken, address indexed toToken, uint256 totalAmount
+  );
 
   /// @notice Emitted when an open swap is canceled
-  /// @param order The SwapOrder clone that owned the swap
+  /// @param escrow The SwapEscrow clone that owned the swap
   /// @param orderHash Hash of the conditional order on ComposableCoW
   /// @param fromToken The token that was being swapped from
   /// @param amount The amount of fromToken returned to the Collector
-  event SwapCanceled(address indexed order, bytes32 orderHash, address indexed fromToken, uint256 amount);
+  event SwapCanceled(address indexed escrow, bytes32 orderHash, address indexed fromToken, uint256 amount);
 
   /// @notice Returns address of Aave V3 Collector, the receiver of every swap and refund
   function COLLECTOR() external view returns (address);
@@ -130,8 +121,8 @@ interface ISwapSteward {
   /// @notice Returns the ComposableCoW contract
   function COMPOSABLE_COW() external view returns (IComposableCow);
 
-  /// @notice Returns the SwapOrder implementation that every swap clones
-  function SWAP_ORDER_IMPLEMENTATION() external view returns (address);
+  /// @notice Returns the SwapEscrow implementation that every swap clones
+  function SWAP_ESCROW_IMPLEMENTATION() external view returns (address);
 
   /// @notice Returns the Chainlink L2 sequencer uptime feed, zero on chains without one
   function SEQUENCER_UPTIME_FEED() external view returns (address);
@@ -158,12 +149,12 @@ interface ISwapSteward {
   /// @param token The address of the token to query the budget for
   function tokenBudget(address token) external view returns (uint256);
 
-  /// @notice Returns the open swap owned by a SwapOrder clone, or zero values if there is none
-  /// @param order Address of the SwapOrder clone
-  function swaps(address order) external view returns (address fromToken, bytes32 orderHash);
+  /// @notice Returns the open swap owned by a SwapEscrow clone, or zero values if there is none
+  /// @param escrow Address of the SwapEscrow clone
+  function swaps(address escrow) external view returns (address fromToken, bytes32 orderHash);
 
   /// @notice Swaps a specified amount of a sell token for a buy token at the oracle price, minus slippage
-  /// @dev Deploys a SwapOrder clone that owns the order. Guardian swaps consume the token budget
+  /// @dev Deploys a SwapEscrow clone that owns the order. Guardian swaps consume the token budget
   /// @param fromToken The address of the token to sell
   /// @param toToken The address of the token to buy
   /// @param amount The amount of the sell token to swap, type(uint256).max for the maximum allowed
@@ -179,12 +170,17 @@ interface ISwapSteward {
   function limitSwap(address fromToken, address toToken, uint256 amount, uint256 amountOut) external;
 
   /// @notice Swaps a specified total amount of a sell token for a buy token in equal parts over time
-  /// @dev Guardian swaps consume the token budget
+  /// @dev Deploys a SwapEscrow clone that owns the order and holds `partSellAmount * numParts` of fromToken.
+  ///      Guardian swaps consume the token budget. `minPartLimit` is a fixed limit, it is not checked against the
+  ///      oracles. Reverts with `StartTimeInPast` if `startTime` is non-zero and before the current block timestamp.
+  ///      Reverts with `IConditionalOrder.OrderNotValid` unless the resolved parameters satisfy the TWAP handler
+  ///      rules: `minPartLimit` > 0, start time < type(uint32).max, 1 < `numParts` <= type(uint32).max,
+  ///      0 < `partDuration` <= 365 days and `span` <= `partDuration`
   /// @param fromToken Address of the token to swap from
   /// @param toToken Address of the token to swap to
   /// @param partSellAmount The amount of fromToken to sell in each part
   /// @param minPartLimit The minimum amount of toToken to receive per part
-  /// @param startTime Start time of the TWAP, 0 to start when the order is created
+  /// @param startTime Start time of the TWAP, 0 to start at the current block timestamp
   /// @param numParts Number of parts
   /// @param partDuration Duration of each part, in seconds
   /// @param span Window of each part during which it can be filled, 0 for the whole part duration
@@ -202,8 +198,8 @@ interface ISwapSteward {
   /// @notice Cancels an open swap and returns its unfilled fromToken to the Collector
   /// @dev Removes the order from ComposableCoW, zeroes the relayer allowance of the clone and sends the
   ///      full fromToken balance of the clone to the Collector. Also used to clean up a filled swap
-  /// @param order The SwapOrder clone that owns the swap
-  function cancelSwap(address order) external;
+  /// @param escrow The SwapEscrow clone that owns the swap
+  function cancelSwap(address escrow) external;
 
   /// @notice Increases the budget of a token
   /// @param token The address of the token

@@ -9,14 +9,14 @@ import {ERC1271Forwarder} from "src/finance/ERC1271Forwarder.sol";
 import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
 
 /**
- * @title SwapOrder
+ * @title SwapEscrow
  * @author halaprix (Tokenlogic)
  * @notice Owner of one Composable CoW conditional order. SwapSteward deploys one minimal proxy clone
  * of this contract per swap, so the sell tokens and the relayer allowance of each order are separate.
  * @dev Clones have no storage. STEWARD, VAULT_RELAYER and COMPOSABLE_COW are immutables of the
  * implementation, which every clone reads through delegatecall.
  */
-contract SwapOrder is ERC1271Forwarder {
+contract SwapEscrow is ERC1271Forwarder {
   using SafeERC20 for IERC20;
 
   /// @dev Caller is not the steward

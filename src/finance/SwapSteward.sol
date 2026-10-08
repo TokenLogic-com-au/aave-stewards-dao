@@ -17,7 +17,8 @@ import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
 import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
 import {OracleMarketOrder} from "src/finance/OracleMarketOrder.sol";
 import {OracleMath} from "src/finance/libraries/OracleMath.sol";
-import {SwapOrder} from "src/finance/SwapOrder.sol";
+import {TWAPOrder} from "src/finance/libraries/TWAPOrder.sol";
+import {SwapEscrow} from "src/finance/SwapEscrow.sol";
 import {ISwapSteward} from "src/finance/interfaces/ISwapSteward.sol";
 
 /**
@@ -25,7 +26,7 @@ import {ISwapSteward} from "src/finance/interfaces/ISwapSteward.sol";
  * @author halaprix (Tokenlogic)
  * @notice Facilitates token swaps on behalf of the DAO Treasury through Composable CoW.
  * Same role, budget, pair and oracle model as MainnetSwapSteward, without Milkman.
- * The receiver of every swap is the Collector. Each swap is owned by its own SwapOrder clone,
+ * The receiver of every swap is the Collector. Each swap is owned by its own SwapEscrow clone,
  * which holds only that swap's sell tokens and relayer allowance.
  */
 contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableBase {
@@ -50,7 +51,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   IComposableCow public immutable COMPOSABLE_COW;
 
   /// @inheritdoc ISwapSteward
-  address public immutable SWAP_ORDER_IMPLEMENTATION;
+  address public immutable SWAP_ESCROW_IMPLEMENTATION;
 
   /// @inheritdoc ISwapSteward
   address public immutable MARKET_ORDER_HANDLER;
@@ -74,7 +75,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   mapping(address token => uint256 budget) public tokenBudget;
 
   /// @inheritdoc ISwapSteward
-  mapping(address order => Swap swap) public swaps;
+  mapping(address escrow => Swap swap) public swaps;
 
   constructor(
     address initialOwner,
@@ -89,7 +90,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   ) OwnableWithGuardian(initialOwner, initialGuardian) {
     COLLECTOR = collector;
     COMPOSABLE_COW = IComposableCow(composableCow);
-    SWAP_ORDER_IMPLEMENTATION = address(new SwapOrder(composableCow, vaultRelayer));
+    SWAP_ESCROW_IMPLEMENTATION = address(new SwapEscrow(composableCow, vaultRelayer));
     MARKET_ORDER_HANDLER = marketOrderHandler;
     LIMIT_ORDER_HANDLER = limitOrderHandler;
     TWAP_HANDLER = twapHandler;
@@ -103,12 +104,6 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     amount = _checkAmount(fromToken, amount);
 
     _validateSwap(fromToken, toToken, fromOracle, toOracle, amount, slippage);
-
-    address order = Clones.clone(SWAP_ORDER_IMPLEMENTATION);
-    _transferTokensTo(fromToken, order, amount);
-    if (msg.sender != owner()) {
-      _decreaseBudget(fromToken, amount);
-    }
 
     IConditionalOrder.ConditionalOrderParams memory params = IConditionalOrder.ConditionalOrderParams(
       IConditionalOrder(MARKET_ORDER_HANDLER),
@@ -130,32 +125,62 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
       )
     );
 
-    bytes32 orderHash = COMPOSABLE_COW.hash(params);
-    swaps[order] = Swap({fromToken: fromToken, orderHash: orderHash});
+    (address escrow, bytes32 orderHash) = _openSwap(fromToken, amount, params);
 
-    SwapOrder(order).open(params, IERC20(fromToken), amount);
-
-    emit SwapRequested(order, orderHash, fromToken, toToken, fromOracle, toOracle, amount, slippage);
+    emit SwapRequested(escrow, orderHash, fromToken, toToken, fromOracle, toOracle, amount, slippage);
   }
 
   /// @inheritdoc ISwapSteward
   function limitSwap(address, address, uint256, uint256) external onlyOwnerOrGuardian {}
 
   /// @inheritdoc ISwapSteward
-  function twapSwap(address, address, uint256, uint256, uint256, uint256, uint256, uint256)
-    external
-    onlyOwnerOrGuardian
-  {}
+  function twapSwap(
+    address fromToken,
+    address toToken,
+    uint256 partSellAmount,
+    uint256 minPartLimit,
+    uint256 startTime,
+    uint256 numParts,
+    uint256 partDuration,
+    uint256 span
+  ) external onlyOwnerOrGuardian {
+    uint256 amount = partSellAmount * numParts;
+
+    _validateCommon(fromToken, toToken, amount);
+    if (startTime != 0 && startTime < block.timestamp) revert StartTimeInPast();
+
+    TWAPOrder.Data memory twap = TWAPOrder.Data({
+      sellToken: IERC20(fromToken),
+      buyToken: IERC20(toToken),
+      receiver: COLLECTOR,
+      partSellAmount: partSellAmount,
+      minPartLimit: minPartLimit,
+      t0: startTime == 0 ? block.timestamp : startTime,
+      n: numParts,
+      t: partDuration,
+      span: span,
+      appData: APP_DATA
+    });
+    TWAPOrder.validate(twap);
+
+    (address escrow, bytes32 orderHash) = _openSwap(
+      fromToken,
+      amount,
+      IConditionalOrder.ConditionalOrderParams(IConditionalOrder(TWAP_HANDLER), bytes32(0), abi.encode(twap))
+    );
+
+    emit TWAPSwapRequested(escrow, orderHash, fromToken, toToken, amount);
+  }
 
   /// @inheritdoc ISwapSteward
-  function cancelSwap(address order) external onlyOwnerOrGuardian {
-    Swap memory pending = swaps[order];
+  function cancelSwap(address escrow) external onlyOwnerOrGuardian {
+    Swap memory pending = swaps[escrow];
     if (pending.orderHash == bytes32(0)) revert SwapNotFound();
-    delete swaps[order];
+    delete swaps[escrow];
 
-    uint256 amount = SwapOrder(order).close(pending.orderHash, IERC20(pending.fromToken), COLLECTOR);
+    uint256 amount = SwapEscrow(escrow).close(pending.orderHash, IERC20(pending.fromToken), COLLECTOR);
 
-    emit SwapCanceled(order, pending.orderHash, pending.fromToken, amount);
+    emit SwapCanceled(escrow, pending.orderHash, pending.fromToken, amount);
   }
 
   /// @inheritdoc ISwapSteward
@@ -229,6 +254,24 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
 
   function _transferTokensTo(address fromToken, address to, uint256 amount) internal {
     ICollector(COLLECTOR).transfer(IERC20(fromToken), to, amount);
+  }
+
+  /// @dev Internal function to deploy the SwapEscrow clone of a swap, fund it from the Collector and open its order.
+  /// Guardian swaps consume the token budget
+  function _openSwap(address fromToken, uint256 amount, IConditionalOrder.ConditionalOrderParams memory params)
+    internal
+    returns (address escrow, bytes32 orderHash)
+  {
+    escrow = Clones.clone(SWAP_ESCROW_IMPLEMENTATION);
+    _transferTokensTo(fromToken, escrow, amount);
+    if (msg.sender != owner()) {
+      _decreaseBudget(fromToken, amount);
+    }
+
+    orderHash = COMPOSABLE_COW.hash(params);
+    swaps[escrow] = Swap({fromToken: fromToken, orderHash: orderHash});
+
+    SwapEscrow(escrow).open(params, IERC20(fromToken), amount);
   }
 
   /// @dev Internal function to validate a swap's parameters
