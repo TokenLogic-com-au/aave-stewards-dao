@@ -88,6 +88,10 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     address vaultRelayer,
     address sequencerUptimeFeed
   ) OwnableWithGuardian(initialOwner, initialGuardian) {
+    if (
+      collector == address(0) || composableCow == address(0) || marketOrderHandler == address(0)
+        || twapHandler == address(0) || vaultRelayer == address(0)
+    ) revert InvalidZeroAddress();
     COLLECTOR = collector;
     COMPOSABLE_COW = IComposableCow(composableCow);
     SWAP_ESCROW_IMPLEMENTATION = address(new SwapEscrow(composableCow, vaultRelayer));

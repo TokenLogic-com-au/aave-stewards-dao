@@ -150,6 +150,32 @@ contract SwapStewardTest is Test {
     IGPv2AllowListAuthentication(authenticator).addSolver(solver);
   }
 
+  function test_constructor_revertsIf_zeroAddress() public {
+    for (uint256 i; i < 5; ++i) {
+      address[5] memory a =
+        [address(AaveV3Arbitrum.COLLECTOR), COMPOSABLE_COW, address(marketOrderHandler), TWAP_HANDLER, VAULT_RELAYER];
+      a[i] = address(0);
+      vm.expectRevert(ISwapSteward.InvalidZeroAddress.selector);
+      this.createSteward(a[0], a[1], a[2], a[3], a[4]);
+    }
+  }
+
+  function test_constructor_allowsZeroGuardianAndSequencerFeed() public {
+    SwapSteward stewardZeroGuardian = new SwapSteward(
+      GovernanceV3Arbitrum.EXECUTOR_LVL_1,
+      address(0),
+      address(AaveV3Arbitrum.COLLECTOR),
+      COMPOSABLE_COW,
+      address(marketOrderHandler),
+      limitOrderHandler,
+      TWAP_HANDLER,
+      VAULT_RELAYER,
+      address(0)
+    );
+    assertEq(stewardZeroGuardian.guardian(), address(0));
+    assertEq(stewardZeroGuardian.SEQUENCER_UPTIME_FEED(), address(0));
+  }
+
   function test_rescueToken_revertsIf_notOwnerOrGuardian() public {
     address token = AaveV3ArbitrumAssets.ARB_UNDERLYING;
 
@@ -1190,6 +1216,26 @@ contract SwapStewardTest is Test {
     vm.prank(caller);
     steward.swap(fromToken, toToken, amount, SWAP_SLIPPAGE);
     return escrow;
+  }
+
+  function createSteward(
+    address collector,
+    address composableCow,
+    address marketOrderHandler_,
+    address twapHandler,
+    address vaultRelayer
+  ) external returns (SwapSteward) {
+    return new SwapSteward(
+      GovernanceV3Arbitrum.EXECUTOR_LVL_1,
+      guardian,
+      collector,
+      composableCow,
+      marketOrderHandler_,
+      limitOrderHandler,
+      twapHandler,
+      vaultRelayer,
+      ChainlinkArbitrum.L2_Sequencer_Uptime_Status_Feed
+    );
   }
 }
 
