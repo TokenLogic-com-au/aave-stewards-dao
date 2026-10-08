@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
+// Interface extracted from https://github.com/cowprotocol/composable-cow/blob/c0435953ac8312a606d66c91554f2bb4d22ec686/src/ComposableCoW.sol
+// composable-cow tag ack3-rev2.0 (file last changed in 9f0c6110ec2eb498341a0d45a0168e735a18ed1b).
+// Subset of the external API: PayloadStruct, singleOrders, domainSeparator, create, remove, hash, isValidSafeSignature.
 
-import {IConditionalOrder} from "./IConditionalOrder.sol";
+import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
+import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
 
 interface IComposableCow {
   /// A struct to encapsulate order parameters / offchain input
@@ -44,4 +48,20 @@ interface IComposableCow {
     bytes calldata encodeData,
     bytes calldata payload
   ) external view returns (bytes4 magic);
+
+  /**
+   * Get the `GPv2Order.Data` and signature for submitting to CoW Protocol API
+   * @param owner of the order
+   * @param params `ConditionalOrderParams` for the order
+   * @param offchainInput any dynamic off-chain input for generating the discrete order
+   * @param proof if using merkle-roots that H(handler || salt || staticInput) is in the merkle tree
+   * @return order discrete order for submitting to CoW Protocol API
+   * @return signature for submitting to CoW Protocol API
+   */
+  function getTradeableOrderWithSignature(
+    address owner,
+    IConditionalOrder.ConditionalOrderParams calldata params,
+    bytes calldata offchainInput,
+    bytes32[] calldata proof
+  ) external view returns (GPv2Order.Data memory order, bytes memory signature);
 }
