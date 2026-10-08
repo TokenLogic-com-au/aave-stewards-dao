@@ -701,17 +701,17 @@ contract SwapStewardTest is Test {
     TWAPOrder.Data memory twoParts = _twapData(block.timestamp, TWAP_MAX_PART_DURATION);
     twoParts.n = 2;
     twoParts.t = TWAP_MAX_PART_DURATION;
-    address twoPartsOrder = _twapSwap(guardian, twoParts);
-    (, bytes32 twoPartsHash) = steward.swaps(twoPartsOrder);
+    address twoPartsEscrow = _twapSwap(guardian, twoParts);
+    (, bytes32 twoPartsHash) = steward.swaps(twoPartsEscrow);
     assertEq(twoPartsHash, keccak256(abi.encode(_twapParams(twoParts))));
 
     TWAPOrder.Data memory maxParts = _twapData(block.timestamp, 0);
     maxParts.partSellAmount = 1;
     maxParts.n = type(uint32).max;
-    address maxPartsOrder = _twapSwap(GovernanceV3Arbitrum.EXECUTOR_LVL_1, maxParts);
-    (, bytes32 maxPartsHash) = steward.swaps(maxPartsOrder);
+    address maxPartsEscrow = _twapSwap(GovernanceV3Arbitrum.EXECUTOR_LVL_1, maxParts);
+    (, bytes32 maxPartsHash) = steward.swaps(maxPartsEscrow);
     assertEq(maxPartsHash, keccak256(abi.encode(_twapParams(maxParts))));
-    assertEq(IERC20(fromToken).balanceOf(maxPartsOrder), type(uint32).max);
+    assertEq(IERC20(fromToken).balanceOf(maxPartsEscrow), type(uint32).max);
   }
 
   function test_twapSwap() public {
