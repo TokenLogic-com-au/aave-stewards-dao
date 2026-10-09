@@ -8,9 +8,6 @@ import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessCon
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IWithGuardian} from "solidity-utils/contracts/access-control/interfaces/IWithGuardian.sol";
-import {AaveV3Arbitrum, AaveV3ArbitrumAssets} from "aave-address-book/AaveV3Arbitrum.sol";
-import {ChainlinkArbitrum} from "aave-address-book/ChainlinkArbitrum.sol";
-import {GovernanceV3Arbitrum} from "aave-address-book/GovernanceV3Arbitrum.sol";
 import {IGPv2Settlement} from "src/finance/interfaces/IGPv2Settlement.sol";
 import {IAggregatorInterface} from "src/finance/interfaces/IAggregatorInterface.sol";
 import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
@@ -71,33 +68,40 @@ interface IGPv2AllowListAuthentication {
 
 /**
  * @dev Test for SwapSteward contract
- * command: forge test -vvv --match-path tests/finance/SwapSteward.t.sol
+ * command: forge test -vvv --match-path 'tests/finance/SwapSteward*.t.sol'
  */
-contract SwapStewardTest is Test {
-  // https://arbiscan.io/address/0xfdaFc9d1902f4e0b84f65F49f244b32b31013b74
+abstract contract SwapStewardTestBase is Test {
+  struct ChainConfig {
+    string rpcAlias;
+    uint256 forkBlock;
+    address executor;
+    address collector;
+    address sequencerUptimeFeed;
+    address fromToken;
+    address fromOracle;
+    address toToken;
+    address toOracle;
+    address otherToken;
+    address otherOracle;
+    uint256 swapAmount;
+    uint256 guardianBudget;
+    uint256 twapPartAmount;
+    uint256 twapMinPartLimit;
+  }
+
+  // Canonical CoW deployments: the same CREATE2 address on every CoW chain, including Base (8453), which
+  // composable-cow networks.json does not list.
   address internal constant COMPOSABLE_COW = 0xfdaFc9d1902f4e0b84f65F49f244b32b31013b74;
-
-  // https://arbiscan.io/address/0x6cF1e9cA41f7611dEf408122793c358a3d11E5a5
   address internal constant TWAP_HANDLER = 0x6cF1e9cA41f7611dEf408122793c358a3d11E5a5;
-
-  // https://arbiscan.io/address/0x9008D19f58AAbD9eD0D60971565AA8510560ab41
   address internal constant GPV2_SETTLEMENT = 0x9008D19f58AAbD9eD0D60971565AA8510560ab41;
-
-  // https://arbiscan.io/address/0xC92E8bdf79f0507f65a392b0ab4667716BFE0110
   address internal constant VAULT_RELAYER = 0xC92E8bdf79f0507f65a392b0ab4667716BFE0110;
 
-  uint256 internal constant FORK_BLOCK = 512244730;
   bytes32 internal constant APP_DATA = bytes32(0);
   bytes32 internal constant FUNDS_ADMIN_ROLE = bytes32("FUNDS_ADMIN");
   uint256 internal constant BPS = 100_00;
   uint256 internal constant SWAP_SLIPPAGE = 50;
-  uint256 internal constant SWAP_AMOUNT = 10e6;
-  uint256 internal constant GUARDIAN_BUDGET = 50e6;
   uint256 internal constant MAX_SLIPPAGE = 10_00;
   uint256 internal constant ORACLE_MOVE_BPS = 100;
-  uint256 internal constant ARBITRUM_BLOCK_TIME = 1;
-  uint256 internal constant TWAP_PART_AMOUNT = 5e6;
-  uint256 internal constant TWAP_MIN_PART_LIMIT = 1e15;
   uint256 internal constant TWAP_NUM_PARTS = 4;
   uint256 internal constant TWAP_PART_DURATION = 1 hours;
   uint256 internal constant TWAP_SPAN = 30 minutes;
@@ -115,34 +119,36 @@ contract SwapStewardTest is Test {
 
   address public guardian = makeAddr("guardian");
   address public alice = makeAddr("alice");
-  address public limitOrderHandler = makeAddr("limitOrderHandler");
   address public solver = makeAddr("solver");
 
   OracleMarketOrder public marketOrderHandler;
   SwapSteward public steward;
+  ChainConfig internal cfg;
+
+  function _config() internal view virtual returns (ChainConfig memory);
 
   function setUp() public {
-    vm.createSelectFork(vm.rpcUrl("arbitrum"), FORK_BLOCK);
+    cfg = _config();
+    vm.createSelectFork(vm.rpcUrl(cfg.rpcAlias), cfg.forkBlock);
 
     marketOrderHandler = new OracleMarketOrder();
     steward = new SwapSteward(
-      GovernanceV3Arbitrum.EXECUTOR_LVL_1,
+      cfg.executor,
       guardian,
-      address(AaveV3Arbitrum.COLLECTOR),
+      cfg.collector,
       COMPOSABLE_COW,
       address(marketOrderHandler),
-      limitOrderHandler,
       TWAP_HANDLER,
       VAULT_RELAYER,
-      ChainlinkArbitrum.L2_Sequencer_Uptime_Status_Feed
+      cfg.sequencerUptimeFeed
     );
 
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
-    IAccessControl(address(AaveV3Arbitrum.COLLECTOR)).grantRole(FUNDS_ADMIN_ROLE, address(steward));
-    steward.setSwappablePair(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.WETH_UNDERLYING, true);
-    steward.setTokenOracle(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.USDCn_ORACLE);
-    steward.setTokenOracle(AaveV3ArbitrumAssets.WETH_UNDERLYING, AaveV3ArbitrumAssets.WETH_ORACLE);
-    steward.increaseTokenBudget(AaveV3ArbitrumAssets.USDCn_UNDERLYING, GUARDIAN_BUDGET);
+    vm.startPrank(cfg.executor);
+    IAccessControl(cfg.collector).grantRole(FUNDS_ADMIN_ROLE, address(steward));
+    steward.setSwappablePair(cfg.fromToken, cfg.toToken, true);
+    steward.setTokenOracle(cfg.fromToken, cfg.fromOracle);
+    steward.setTokenOracle(cfg.toToken, cfg.toOracle);
+    steward.increaseTokenBudget(cfg.fromToken, cfg.guardianBudget);
     vm.stopPrank();
 
     address authenticator = IGPv2SettlementTest(GPV2_SETTLEMENT).authenticator();
@@ -150,10 +156,9 @@ contract SwapStewardTest is Test {
     IGPv2AllowListAuthentication(authenticator).addSolver(solver);
   }
 
-  function test_constructor_revertsIf_zeroAddress() public {
+  function test_constructor_revertsWith_InvalidZeroAddress() public {
     for (uint256 i; i < 5; ++i) {
-      address[5] memory a =
-        [address(AaveV3Arbitrum.COLLECTOR), COMPOSABLE_COW, address(marketOrderHandler), TWAP_HANDLER, VAULT_RELAYER];
+      address[5] memory a = [cfg.collector, COMPOSABLE_COW, address(marketOrderHandler), TWAP_HANDLER, VAULT_RELAYER];
       a[i] = address(0);
       vm.expectRevert(ISwapSteward.InvalidZeroAddress.selector);
       this.createSteward(a[0], a[1], a[2], a[3], a[4]);
@@ -162,12 +167,11 @@ contract SwapStewardTest is Test {
 
   function test_constructor_allowsZeroGuardianAndSequencerFeed() public {
     SwapSteward stewardZeroGuardian = new SwapSteward(
-      GovernanceV3Arbitrum.EXECUTOR_LVL_1,
+      cfg.executor,
       address(0),
-      address(AaveV3Arbitrum.COLLECTOR),
+      cfg.collector,
       COMPOSABLE_COW,
       address(marketOrderHandler),
-      limitOrderHandler,
       TWAP_HANDLER,
       VAULT_RELAYER,
       address(0)
@@ -176,21 +180,21 @@ contract SwapStewardTest is Test {
     assertEq(stewardZeroGuardian.SEQUENCER_UPTIME_FEED(), address(0));
   }
 
-  function test_rescueToken_revertsIf_notOwnerOrGuardian() public {
-    address token = AaveV3ArbitrumAssets.ARB_UNDERLYING;
-
-    vm.startPrank(alice);
+  function test_rescueToken_revertsWith_OnlyGuardianOrOwnerInvalidCaller_fullBalance() public {
+    vm.prank(alice);
     vm.expectRevert(abi.encodeWithSelector(IWithGuardian.OnlyGuardianOrOwnerInvalidCaller.selector, alice));
-    steward.rescueToken(token);
+    steward.rescueToken(cfg.otherToken);
+  }
 
+  function test_rescueToken_revertsWith_OnlyGuardianOrOwnerInvalidCaller_amount() public {
+    vm.prank(alice);
     vm.expectRevert(abi.encodeWithSelector(IWithGuardian.OnlyGuardianOrOwnerInvalidCaller.selector, alice));
-    steward.rescueToken(token, 1);
-    vm.stopPrank();
+    steward.rescueToken(cfg.otherToken, 1);
   }
 
   function test_rescueToken() public {
-    address collector = address(AaveV3Arbitrum.COLLECTOR);
-    address token = AaveV3ArbitrumAssets.ARB_UNDERLYING;
+    address collector = cfg.collector;
+    address token = cfg.otherToken;
     uint256 amount = 1_000e18;
 
     deal(token, address(steward), amount);
@@ -206,8 +210,8 @@ contract SwapStewardTest is Test {
   }
 
   function test_rescueToken_amount() public {
-    address collector = address(AaveV3Arbitrum.COLLECTOR);
-    address token = AaveV3ArbitrumAssets.ARB_UNDERLYING;
+    address collector = cfg.collector;
+    address token = cfg.otherToken;
     uint256 amount = 1_000e18;
     uint256 rescueAmount = 500e18;
 
@@ -221,25 +225,25 @@ contract SwapStewardTest is Test {
     assertEq(IERC20(token).balanceOf(collector), collectorBefore + rescueAmount);
   }
 
-  function test_setSwappablePair_revertsIf_notOwner() public {
+  function test_setSwappablePair_revertsWith_OwnableUnauthorizedAccount() public {
     vm.startPrank(alice);
     vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-    steward.setSwappablePair(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.ARB_UNDERLYING, true);
+    steward.setSwappablePair(cfg.fromToken, cfg.otherToken, true);
     vm.stopPrank();
   }
 
-  function test_setSwappablePair_revertsIf_sameToken() public {
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+  function test_setSwappablePair_revertsWith_UnrecognizedTokenSwap() public {
+    vm.startPrank(cfg.executor);
     vm.expectRevert(ISwapSteward.UnrecognizedTokenSwap.selector);
-    steward.setSwappablePair(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.USDCn_UNDERLYING, true);
+    steward.setSwappablePair(cfg.fromToken, cfg.fromToken, true);
     vm.stopPrank();
   }
 
   function test_setSwappablePair() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.ARB_UNDERLYING;
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.otherToken;
 
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+    vm.startPrank(cfg.executor);
 
     vm.expectEmit(true, true, true, true, address(steward));
     emit ISwapSteward.SetSwappablePair(fromToken, toToken, true);
@@ -255,53 +259,51 @@ contract SwapStewardTest is Test {
     vm.stopPrank();
   }
 
-  function test_setTokenOracle_revertsIf_notOwner() public {
+  function test_setTokenOracle_revertsWith_OwnableUnauthorizedAccount() public {
     vm.startPrank(alice);
     vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-    steward.setTokenOracle(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.USDCn_ORACLE);
+    steward.setTokenOracle(cfg.fromToken, cfg.fromOracle);
     vm.stopPrank();
   }
 
-  function test_setTokenOracle_revertsIf_zeroAddress() public {
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+  function test_setTokenOracle_revertsWith_InvalidZeroAddress() public {
+    vm.startPrank(cfg.executor);
     vm.expectRevert(ISwapSteward.InvalidZeroAddress.selector);
-    steward.setTokenOracle(AaveV3ArbitrumAssets.USDCn_UNDERLYING, address(0));
+    steward.setTokenOracle(cfg.fromToken, address(0));
     vm.stopPrank();
   }
 
-  function test_setTokenOracle_revertsIf_incompatibleDecimals() public {
-    vm.mockCall(
-      AaveV3ArbitrumAssets.USDCn_ORACLE, abi.encodeWithSelector(IAggregatorInterface.decimals.selector), abi.encode(18)
-    );
+  function test_setTokenOracle_revertsWith_PriceFeedIncompatibleDecimals() public {
+    vm.mockCall(cfg.fromOracle, abi.encodeWithSelector(IAggregatorInterface.decimals.selector), abi.encode(18));
 
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+    vm.startPrank(cfg.executor);
     vm.expectRevert(ISwapSteward.PriceFeedIncompatibleDecimals.selector);
-    steward.setTokenOracle(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.USDCn_ORACLE);
+    steward.setTokenOracle(cfg.fromToken, cfg.fromOracle);
     vm.stopPrank();
   }
 
-  function test_setTokenOracle_revertsIf_invalidAnswer() public {
+  function test_setTokenOracle_revertsWith_PriceFeedInvalidAnswer() public {
     int256[2] memory badAnswers = [int256(0), int256(-1)];
 
     for (uint256 i; i < badAnswers.length; i++) {
       address mockOracle = address(new MockAggregator(badAnswers[i]));
 
-      vm.prank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+      vm.prank(cfg.executor);
       vm.expectRevert(ISwapSteward.PriceFeedInvalidAnswer.selector);
-      steward.setTokenOracle(AaveV3ArbitrumAssets.USDCn_UNDERLYING, mockOracle);
+      steward.setTokenOracle(cfg.fromToken, mockOracle);
     }
   }
 
   function test_setTokenOracle() public {
-    address newToken = AaveV3ArbitrumAssets.ARB_UNDERLYING;
-    address newOracle = AaveV3ArbitrumAssets.ARB_ORACLE;
-    address replacedToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address replacementOracle = AaveV3ArbitrumAssets.WETH_ORACLE;
+    address newToken = cfg.otherToken;
+    address newOracle = cfg.otherOracle;
+    address replacedToken = cfg.fromToken;
+    address replacementOracle = cfg.toOracle;
 
     assertEq(steward.priceOracle(newToken), address(0));
-    assertEq(steward.priceOracle(replacedToken), AaveV3ArbitrumAssets.USDCn_ORACLE);
+    assertEq(steward.priceOracle(replacedToken), cfg.fromOracle);
 
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+    vm.startPrank(cfg.executor);
 
     vm.expectEmit(true, true, true, true, address(steward));
     emit ISwapSteward.SetTokenOracle(newToken, newOracle);
@@ -315,18 +317,18 @@ contract SwapStewardTest is Test {
     vm.stopPrank();
   }
 
-  function test_increaseTokenBudget_revertsIf_notOwner() public {
+  function test_increaseTokenBudget_revertsWith_OwnableUnauthorizedAccount() public {
     vm.startPrank(alice);
     vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-    steward.increaseTokenBudget(AaveV3ArbitrumAssets.USDCn_UNDERLYING, 1_000e6);
+    steward.increaseTokenBudget(cfg.fromToken, 100 * cfg.swapAmount);
     vm.stopPrank();
   }
 
   function test_increaseTokenBudget() public {
-    address token = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    uint256 amount = 1_000e6;
+    address token = cfg.fromToken;
+    uint256 amount = 100 * cfg.swapAmount;
 
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+    vm.startPrank(cfg.executor);
 
     uint256 budgetBefore = steward.tokenBudget(token);
 
@@ -338,27 +340,27 @@ contract SwapStewardTest is Test {
     vm.stopPrank();
   }
 
-  function test_decreaseTokenBudget_revertsIf_notOwner() public {
+  function test_decreaseTokenBudget_revertsWith_OwnableUnauthorizedAccount() public {
     vm.startPrank(alice);
     vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-    steward.decreaseTokenBudget(AaveV3ArbitrumAssets.USDCn_UNDERLYING, 1_000e6);
+    steward.decreaseTokenBudget(cfg.fromToken, 100 * cfg.swapAmount);
     vm.stopPrank();
   }
 
-  function test_decreaseTokenBudget_revertsIf_insufficientBudget() public {
-    address token = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
+  function test_decreaseTokenBudget_revertsWith_InsufficientBudget() public {
+    address token = cfg.fromToken;
 
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+    vm.startPrank(cfg.executor);
     vm.expectRevert(ISwapSteward.InsufficientBudget.selector);
-    steward.decreaseTokenBudget(token, GUARDIAN_BUDGET + 1);
+    steward.decreaseTokenBudget(token, cfg.guardianBudget + 1);
     vm.stopPrank();
   }
 
   function test_decreaseTokenBudget() public {
-    address token = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    uint256 decreaseAmount = 10e6;
+    address token = cfg.fromToken;
+    uint256 decreaseAmount = cfg.swapAmount;
 
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
+    vm.startPrank(cfg.executor);
 
     uint256 budgetBefore = steward.tokenBudget(token);
 
@@ -370,64 +372,63 @@ contract SwapStewardTest is Test {
     vm.stopPrank();
   }
 
-  function test_swap_revertsIf_notOwnerOrGuardian() public {
+  function test_swap_revertsWith_OnlyGuardianOrOwnerInvalidCaller() public {
     vm.prank(alice);
     vm.expectRevert(abi.encodeWithSelector(IWithGuardian.OnlyGuardianOrOwnerInvalidCaller.selector, alice));
-    steward.swap(
-      AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.WETH_UNDERLYING, SWAP_AMOUNT, SWAP_SLIPPAGE
-    );
+    steward.swap(cfg.fromToken, cfg.toToken, cfg.swapAmount, SWAP_SLIPPAGE);
   }
 
-  function test_swap_revertsIf_zeroAmount() public {
+  function test_swap_revertsWith_InvalidZeroAmount() public {
     vm.prank(guardian);
     vm.expectRevert(ISwapSteward.InvalidZeroAmount.selector);
-    steward.swap(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.WETH_UNDERLYING, 0, SWAP_SLIPPAGE);
+    steward.swap(cfg.fromToken, cfg.toToken, 0, SWAP_SLIPPAGE);
   }
 
-  function test_swap_revertsIf_unrecognizedPair() public {
-    vm.startPrank(guardian);
+  function test_swap_revertsWith_UnrecognizedTokenSwap_pairNotApproved() public {
+    vm.prank(guardian);
     vm.expectRevert(ISwapSteward.UnrecognizedTokenSwap.selector);
-    steward.swap(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.ARB_UNDERLYING, SWAP_AMOUNT, SWAP_SLIPPAGE);
+    steward.swap(cfg.fromToken, cfg.otherToken, cfg.swapAmount, SWAP_SLIPPAGE);
+  }
 
+  function test_swap_revertsWith_UnrecognizedTokenSwap_reversedPair() public {
+    vm.prank(guardian);
     vm.expectRevert(ISwapSteward.UnrecognizedTokenSwap.selector);
-    steward.swap(
-      AaveV3ArbitrumAssets.WETH_UNDERLYING, AaveV3ArbitrumAssets.USDCn_UNDERLYING, SWAP_AMOUNT, SWAP_SLIPPAGE
-    );
-    vm.stopPrank();
+    steward.swap(cfg.toToken, cfg.fromToken, cfg.swapAmount, SWAP_SLIPPAGE);
   }
 
-  function test_swap_revertsIf_oracleNotSet() public {
-    vm.startPrank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
-    steward.setSwappablePair(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.ARB_UNDERLYING, true);
-    steward.setSwappablePair(AaveV3ArbitrumAssets.ARB_UNDERLYING, AaveV3ArbitrumAssets.USDCn_UNDERLYING, true);
-    vm.stopPrank();
+  function test_swap_revertsWith_OracleNotSet_fromOracleUnset() public {
+    _approvePairsWithOtherToken();
 
-    vm.startPrank(guardian);
+    vm.prank(guardian);
     vm.expectRevert(ISwapSteward.OracleNotSet.selector);
-    steward.swap(AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.ARB_UNDERLYING, SWAP_AMOUNT, SWAP_SLIPPAGE);
-
-    vm.expectRevert(ISwapSteward.OracleNotSet.selector);
-    steward.swap(AaveV3ArbitrumAssets.ARB_UNDERLYING, AaveV3ArbitrumAssets.USDCn_UNDERLYING, SWAP_AMOUNT, SWAP_SLIPPAGE);
-    vm.stopPrank();
+    steward.swap(cfg.otherToken, cfg.fromToken, cfg.swapAmount, SWAP_SLIPPAGE);
   }
 
-  function test_swap_revertsIf_slippageAboveMax() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
+  function test_swap_revertsWith_OracleNotSet_toOracleUnset() public {
+    _approvePairsWithOtherToken();
+
+    vm.prank(guardian);
+    vm.expectRevert(ISwapSteward.OracleNotSet.selector);
+    steward.swap(cfg.fromToken, cfg.otherToken, cfg.swapAmount, SWAP_SLIPPAGE);
+  }
+
+  function test_swap_revertsWith_InvalidSlippage() public {
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
 
     vm.startPrank(guardian);
-    steward.swap(fromToken, toToken, SWAP_AMOUNT, MAX_SLIPPAGE);
+    steward.swap(fromToken, toToken, cfg.swapAmount, MAX_SLIPPAGE);
 
     vm.expectRevert(ISwapSteward.InvalidSlippage.selector);
-    steward.swap(fromToken, toToken, SWAP_AMOUNT, MAX_SLIPPAGE + 1);
+    steward.swap(fromToken, toToken, cfg.swapAmount, MAX_SLIPPAGE + 1);
     vm.stopPrank();
   }
 
-  function test_swap_revertsIf_invalidPriceFeedAnswer() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
+  function test_swap_revertsWith_PriceFeedInvalidAnswer() public {
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
     int256[2] memory badAnswers = [int256(0), int256(-1)];
-    address[2] memory oracles = [AaveV3ArbitrumAssets.USDCn_ORACLE, AaveV3ArbitrumAssets.WETH_ORACLE];
+    address[2] memory oracles = [cfg.fromOracle, cfg.toOracle];
 
     for (uint256 i; i < oracles.length; i++) {
       for (uint256 j; j < badAnswers.length; j++) {
@@ -436,47 +437,46 @@ contract SwapStewardTest is Test {
         );
         vm.prank(guardian);
         vm.expectRevert(ISwapSteward.PriceFeedInvalidAnswer.selector);
-        steward.swap(fromToken, toToken, SWAP_AMOUNT, SWAP_SLIPPAGE);
+        steward.swap(fromToken, toToken, cfg.swapAmount, SWAP_SLIPPAGE);
         vm.clearMockedCalls();
       }
     }
   }
 
-  function test_swap_revertsIf_budgetExceeded() public {
+  function test_swap_revertsWith_InsufficientBudget() public {
     vm.prank(guardian);
     vm.expectRevert(ISwapSteward.InsufficientBudget.selector);
-    steward.swap(
-      AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.WETH_UNDERLYING, GUARDIAN_BUDGET + 1, SWAP_SLIPPAGE
-    );
+    steward.swap(cfg.fromToken, cfg.toToken, cfg.guardianBudget + 1, SWAP_SLIPPAGE);
   }
 
-  function test_swap_success_ownerSkipsBudget() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    uint256 amount = GUARDIAN_BUDGET + 1e6;
+  function test_swap_ownerSkipsBudget() public {
+    address fromToken = cfg.fromToken;
+    uint256 amount = cfg.guardianBudget + cfg.swapAmount / 10;
 
-    address escrow = _swap(GovernanceV3Arbitrum.EXECUTOR_LVL_1, fromToken, AaveV3ArbitrumAssets.WETH_UNDERLYING, amount);
+    address escrow = _swap(cfg.executor, fromToken, cfg.toToken, amount);
 
-    assertEq(steward.tokenBudget(fromToken), GUARDIAN_BUDGET);
+    assertEq(steward.tokenBudget(fromToken), cfg.guardianBudget);
     assertEq(IERC20(fromToken).balanceOf(escrow), amount);
   }
 
-  function test_swap_success_maxAmount() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address collector = address(AaveV3Arbitrum.COLLECTOR);
+  function test_swap_maxAmount() public {
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
+    address collector = cfg.collector;
 
     uint32 validUntil = uint32(block.timestamp + 1 days);
 
     address guardianEscrow = _swap(guardian, fromToken, toToken, type(uint256).max);
-    assertEq(IERC20(fromToken).balanceOf(guardianEscrow), GUARDIAN_BUDGET);
+    assertEq(IERC20(fromToken).balanceOf(guardianEscrow), cfg.guardianBudget);
     assertEq(steward.tokenBudget(fromToken), 0);
     (, bytes32 guardianHash) = steward.swaps(guardianEscrow);
     assertEq(
-      guardianHash, keccak256(abi.encode(_marketParams(_marketData(fromToken, toToken, GUARDIAN_BUDGET, validUntil))))
+      guardianHash,
+      keccak256(abi.encode(_marketParams(_marketData(fromToken, toToken, cfg.guardianBudget, validUntil))))
     );
 
     uint256 collectorBalance = IERC20(fromToken).balanceOf(collector);
-    address ownerEscrow = _swap(GovernanceV3Arbitrum.EXECUTOR_LVL_1, fromToken, toToken, type(uint256).max);
+    address ownerEscrow = _swap(cfg.executor, fromToken, toToken, type(uint256).max);
     assertEq(IERC20(fromToken).balanceOf(ownerEscrow), collectorBalance);
     assertEq(IERC20(fromToken).balanceOf(collector), 0);
     (, bytes32 ownerHash) = steward.swaps(ownerEscrow);
@@ -485,16 +485,16 @@ contract SwapStewardTest is Test {
     );
   }
 
-  function test_swap_success() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address collector = address(AaveV3Arbitrum.COLLECTOR);
+  function test_swap() public {
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
+    address collector = cfg.collector;
     uint256 collectorBalanceBefore = IERC20(fromToken).balanceOf(collector);
-    assertGe(collectorBalanceBefore, SWAP_AMOUNT);
+    assertGe(collectorBalanceBefore, cfg.swapAmount);
 
     address expectedEscrow = vm.computeCreateAddress(address(steward), vm.getNonce(address(steward)));
     IConditionalOrder.ConditionalOrderParams memory params =
-      _marketParams(_marketData(fromToken, toToken, SWAP_AMOUNT, uint32(block.timestamp + 1 days)));
+      _marketParams(_marketData(fromToken, toToken, cfg.swapAmount, uint32(block.timestamp + 1 days)));
 
     vm.expectEmit(true, true, true, true, address(steward));
     emit ISwapSteward.SwapRequested(
@@ -502,33 +502,33 @@ contract SwapStewardTest is Test {
       keccak256(abi.encode(params)),
       fromToken,
       toToken,
-      AaveV3ArbitrumAssets.USDCn_ORACLE,
-      AaveV3ArbitrumAssets.WETH_ORACLE,
-      SWAP_AMOUNT,
+      cfg.fromOracle,
+      cfg.toOracle,
+      cfg.swapAmount,
       SWAP_SLIPPAGE
     );
-    address escrow = _swap(guardian, fromToken, toToken, SWAP_AMOUNT);
+    address escrow = _swap(guardian, fromToken, toToken, cfg.swapAmount);
     (address swapFromToken, bytes32 orderHash) = steward.swaps(escrow);
 
     assertEq(swapFromToken, fromToken);
     assertTrue(IComposableCow(COMPOSABLE_COW).singleOrders(escrow, orderHash));
-    assertEq(IERC20(fromToken).balanceOf(escrow), SWAP_AMOUNT);
+    assertEq(IERC20(fromToken).balanceOf(escrow), cfg.swapAmount);
     assertEq(IERC20(fromToken).balanceOf(address(steward)), 0);
-    assertEq(IERC20(fromToken).balanceOf(collector), collectorBalanceBefore - SWAP_AMOUNT);
-    assertEq(IERC20(fromToken).allowance(escrow, VAULT_RELAYER), SWAP_AMOUNT);
-    assertEq(steward.tokenBudget(fromToken), GUARDIAN_BUDGET - SWAP_AMOUNT);
+    assertEq(IERC20(fromToken).balanceOf(collector), collectorBalanceBefore - cfg.swapAmount);
+    assertEq(IERC20(fromToken).allowance(escrow, VAULT_RELAYER), cfg.swapAmount);
+    assertEq(steward.tokenBudget(fromToken), cfg.guardianBudget - cfg.swapAmount);
 
     assertEq(keccak256(abi.encode(params)), orderHash);
 
     (GPv2Order.Data memory order, bytes memory signature) =
       IComposableCow(COMPOSABLE_COW).getTradeableOrderWithSignature(escrow, params, "", new bytes32[](0));
 
-    uint256 expectedBuyAmount = _expectedOut(SWAP_AMOUNT) * (BPS - SWAP_SLIPPAGE) / BPS;
+    uint256 expectedBuyAmount = _expectedOut(cfg.swapAmount) * (BPS - SWAP_SLIPPAGE) / BPS;
 
     assertEq(address(order.sellToken), fromToken);
     assertEq(address(order.buyToken), toToken);
     assertEq(order.receiver, collector);
-    assertEq(order.sellAmount, SWAP_AMOUNT);
+    assertEq(order.sellAmount, cfg.swapAmount);
     assertGt(expectedBuyAmount, 0);
     assertEq(order.buyAmount, expectedBuyAmount);
     assertEq(order.validTo, block.timestamp + 1 days);
@@ -544,17 +544,17 @@ contract SwapStewardTest is Test {
   }
 
   function test_swap_twoSwapsSameFromToken() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
 
-    address first = _swap(guardian, fromToken, toToken, SWAP_AMOUNT);
-    address second = _swap(guardian, fromToken, toToken, 2 * SWAP_AMOUNT);
+    address first = _swap(guardian, fromToken, toToken, cfg.swapAmount);
+    address second = _swap(guardian, fromToken, toToken, 2 * cfg.swapAmount);
 
     assertNotEq(first, second);
-    assertEq(IERC20(fromToken).balanceOf(first), SWAP_AMOUNT);
-    assertEq(IERC20(fromToken).balanceOf(second), 2 * SWAP_AMOUNT);
-    assertEq(IERC20(fromToken).allowance(first, VAULT_RELAYER), SWAP_AMOUNT);
-    assertEq(IERC20(fromToken).allowance(second, VAULT_RELAYER), 2 * SWAP_AMOUNT);
+    assertEq(IERC20(fromToken).balanceOf(first), cfg.swapAmount);
+    assertEq(IERC20(fromToken).balanceOf(second), 2 * cfg.swapAmount);
+    assertEq(IERC20(fromToken).allowance(first, VAULT_RELAYER), cfg.swapAmount);
+    assertEq(IERC20(fromToken).allowance(second, VAULT_RELAYER), 2 * cfg.swapAmount);
 
     (, bytes32 firstHash) = steward.swaps(first);
     (, bytes32 secondHash) = steward.swaps(second);
@@ -562,9 +562,9 @@ contract SwapStewardTest is Test {
     assertTrue(IComposableCow(COMPOSABLE_COW).singleOrders(second, secondHash));
   }
 
-  function test_cancelSwap_revertsIf_notOwnerOrGuardian() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address escrow = _swap(guardian, fromToken, AaveV3ArbitrumAssets.WETH_UNDERLYING, SWAP_AMOUNT);
+  function test_cancelSwap_revertsWith_OnlyGuardianOrOwnerInvalidCaller() public {
+    address fromToken = cfg.fromToken;
+    address escrow = _swap(guardian, fromToken, cfg.toToken, cfg.swapAmount);
     (address swapFromToken, bytes32 orderHash) = steward.swaps(escrow);
 
     vm.prank(alice);
@@ -575,26 +575,26 @@ contract SwapStewardTest is Test {
     assertEq(fromTokenAfter, swapFromToken);
     assertEq(orderHashAfter, orderHash);
     assertTrue(IComposableCow(COMPOSABLE_COW).singleOrders(escrow, orderHash));
-    assertEq(IERC20(fromToken).balanceOf(escrow), SWAP_AMOUNT);
-    assertEq(IERC20(fromToken).allowance(escrow, VAULT_RELAYER), SWAP_AMOUNT);
+    assertEq(IERC20(fromToken).balanceOf(escrow), cfg.swapAmount);
+    assertEq(IERC20(fromToken).allowance(escrow, VAULT_RELAYER), cfg.swapAmount);
   }
 
-  function test_cancelSwap_revertsIf_swapNotFound() public {
+  function test_cancelSwap_revertsWith_SwapNotFound() public {
     vm.prank(guardian);
     vm.expectRevert(ISwapSteward.SwapNotFound.selector);
     steward.cancelSwap(alice);
   }
 
-  function test_cancelSwap_beforeFill() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address collector = address(AaveV3Arbitrum.COLLECTOR);
+  function test_cancelSwap() public {
+    address fromToken = cfg.fromToken;
+    address collector = cfg.collector;
     uint256 collectorBalanceBefore = IERC20(fromToken).balanceOf(collector);
 
-    address escrow = _swap(guardian, fromToken, AaveV3ArbitrumAssets.WETH_UNDERLYING, SWAP_AMOUNT);
+    address escrow = _swap(guardian, fromToken, cfg.toToken, cfg.swapAmount);
     (, bytes32 orderHash) = steward.swaps(escrow);
 
     vm.expectEmit(address(steward));
-    emit ISwapSteward.SwapCanceled(escrow, orderHash, fromToken, SWAP_AMOUNT);
+    emit ISwapSteward.SwapCanceled(escrow, orderHash, fromToken, cfg.swapAmount);
     vm.prank(guardian);
     steward.cancelSwap(escrow);
 
@@ -611,14 +611,14 @@ contract SwapStewardTest is Test {
     steward.cancelSwap(escrow);
   }
 
-  function test_twapSwap_revertsIf_notOwnerOrGuardian() public {
+  function test_twapSwap_revertsWith_OnlyGuardianOrOwnerInvalidCaller() public {
     TWAPOrder.Data memory data = _twapData(0, 0);
 
     vm.expectRevert(abi.encodeWithSelector(IWithGuardian.OnlyGuardianOrOwnerInvalidCaller.selector, alice));
     _twapSwap(alice, data);
   }
 
-  function test_twapSwap_revertsIf_zeroPartSellAmount() public {
+  function test_twapSwap_revertsWith_InvalidZeroAmount() public {
     TWAPOrder.Data memory data = _twapData(0, 0);
     data.partSellAmount = 0;
 
@@ -626,45 +626,47 @@ contract SwapStewardTest is Test {
     _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_unrecognizedPair() public {
-    TWAPOrder.Data memory unapproved = _twapData(0, 0);
-    unapproved.buyToken = IERC20(AaveV3ArbitrumAssets.ARB_UNDERLYING);
+  function test_twapSwap_revertsWith_UnrecognizedTokenSwap_pairNotApproved() public {
+    TWAPOrder.Data memory data = _twapData(0, 0);
+    data.buyToken = IERC20(cfg.otherToken);
 
     vm.expectRevert(ISwapSteward.UnrecognizedTokenSwap.selector);
-    _twapSwap(guardian, unapproved);
-
-    TWAPOrder.Data memory reversed = _twapData(0, 0);
-    (reversed.sellToken, reversed.buyToken) = (reversed.buyToken, reversed.sellToken);
-
-    vm.expectRevert(ISwapSteward.UnrecognizedTokenSwap.selector);
-    _twapSwap(guardian, reversed);
+    _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_budgetExceeded() public {
+  function test_twapSwap_revertsWith_UnrecognizedTokenSwap_reversedPair() public {
     TWAPOrder.Data memory data = _twapData(0, 0);
-    data.partSellAmount = GUARDIAN_BUDGET / TWAP_NUM_PARTS + 1;
+    (data.sellToken, data.buyToken) = (data.buyToken, data.sellToken);
+
+    vm.expectRevert(ISwapSteward.UnrecognizedTokenSwap.selector);
+    _twapSwap(guardian, data);
+  }
+
+  function test_twapSwap_revertsWith_InsufficientBudget() public {
+    TWAPOrder.Data memory data = _twapData(0, 0);
+    data.partSellAmount = cfg.guardianBudget / TWAP_NUM_PARTS + 1;
 
     vm.expectRevert(ISwapSteward.InsufficientBudget.selector);
     _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_startTimeInPast() public {
+  function test_twapSwap_revertsWith_StartTimeInPast() public {
     TWAPOrder.Data memory data = _twapData(block.timestamp - 1, 0);
 
     vm.expectRevert(ISwapSteward.StartTimeInPast.selector);
     _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_startTimeTooLate() public {
+  function test_twapSwap_revertsWith_OrderNotValid_startTimeTooLate() public {
     TWAPOrder.Data memory data = _twapData(type(uint32).max, 0);
 
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, INVALID_START_TIME));
     _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_zeroBuyToken() public {
-    vm.prank(GovernanceV3Arbitrum.EXECUTOR_LVL_1);
-    steward.setSwappablePair(AaveV3ArbitrumAssets.USDCn_UNDERLYING, address(0), true);
+  function test_twapSwap_revertsWith_OrderNotValid_zeroBuyToken() public {
+    vm.prank(cfg.executor);
+    steward.setSwappablePair(cfg.fromToken, address(0), true);
 
     TWAPOrder.Data memory data = _twapData(0, 0);
     data.buyToken = IERC20(address(0));
@@ -673,7 +675,7 @@ contract SwapStewardTest is Test {
     _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_zeroMinPartLimit() public {
+  function test_twapSwap_revertsWith_OrderNotValid_zeroMinPartLimit() public {
     TWAPOrder.Data memory data = _twapData(0, 0);
     data.minPartLimit = 0;
 
@@ -681,7 +683,7 @@ contract SwapStewardTest is Test {
     _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_numPartsTooLow() public {
+  function test_twapSwap_revertsWith_OrderNotValid_numPartsTooLow() public {
     TWAPOrder.Data memory data = _twapData(0, 0);
     data.n = 1;
 
@@ -689,7 +691,7 @@ contract SwapStewardTest is Test {
     _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_numPartsTooHigh() public {
+  function test_twapSwap_revertsWith_OrderNotValid_numPartsTooHigh() public {
     TWAPOrder.Data memory data = _twapData(0, 0);
     data.n = uint256(type(uint32).max) + 1;
 
@@ -697,7 +699,7 @@ contract SwapStewardTest is Test {
     _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_zeroPartDuration() public {
+  function test_twapSwap_revertsWith_OrderNotValid_zeroPartDuration() public {
     TWAPOrder.Data memory data = _twapData(0, 0);
     data.t = 0;
 
@@ -705,7 +707,7 @@ contract SwapStewardTest is Test {
     _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_partDurationTooHigh() public {
+  function test_twapSwap_revertsWith_OrderNotValid_partDurationTooHigh() public {
     TWAPOrder.Data memory data = _twapData(0, 0);
     data.t = TWAP_MAX_PART_DURATION + 1;
 
@@ -713,7 +715,7 @@ contract SwapStewardTest is Test {
     _twapSwap(guardian, data);
   }
 
-  function test_twapSwap_revertsIf_spanAbovePartDuration() public {
+  function test_twapSwap_revertsWith_OrderNotValid_spanAbovePartDuration() public {
     TWAPOrder.Data memory data = _twapData(0, TWAP_PART_DURATION + 1);
 
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, INVALID_SPAN));
@@ -721,8 +723,8 @@ contract SwapStewardTest is Test {
   }
 
   function test_twapSwap_boundaryParameters() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    deal(fromToken, address(AaveV3Arbitrum.COLLECTOR), uint256(type(uint32).max) + 2 * TWAP_PART_AMOUNT);
+    address fromToken = cfg.fromToken;
+    deal(fromToken, cfg.collector, uint256(type(uint32).max) + 2 * cfg.twapPartAmount);
 
     TWAPOrder.Data memory twoParts = _twapData(block.timestamp, TWAP_MAX_PART_DURATION);
     twoParts.n = 2;
@@ -734,17 +736,17 @@ contract SwapStewardTest is Test {
     TWAPOrder.Data memory maxParts = _twapData(block.timestamp, 0);
     maxParts.partSellAmount = 1;
     maxParts.n = type(uint32).max;
-    address maxPartsEscrow = _twapSwap(GovernanceV3Arbitrum.EXECUTOR_LVL_1, maxParts);
+    address maxPartsEscrow = _twapSwap(cfg.executor, maxParts);
     (, bytes32 maxPartsHash) = steward.swaps(maxPartsEscrow);
     assertEq(maxPartsHash, keccak256(abi.encode(_twapParams(maxParts))));
     assertEq(IERC20(fromToken).balanceOf(maxPartsEscrow), type(uint32).max);
   }
 
   function test_twapSwap() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address collector = address(AaveV3Arbitrum.COLLECTOR);
-    uint256 total = TWAP_PART_AMOUNT * TWAP_NUM_PARTS;
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
+    address collector = cfg.collector;
+    uint256 total = cfg.twapPartAmount * TWAP_NUM_PARTS;
     uint256 collectorBalanceBefore = IERC20(fromToken).balanceOf(collector);
 
     TWAPOrder.Data memory data = _twapData(block.timestamp + TWAP_PART_DURATION, 0);
@@ -766,7 +768,7 @@ contract SwapStewardTest is Test {
     assertEq(IERC20(fromToken).balanceOf(address(steward)), 0);
     assertEq(IERC20(fromToken).balanceOf(collector), collectorBalanceBefore - total);
     assertEq(IERC20(fromToken).allowance(escrow, VAULT_RELAYER), total);
-    assertEq(steward.tokenBudget(fromToken), GUARDIAN_BUDGET - total);
+    assertEq(steward.tokenBudget(fromToken), cfg.guardianBudget - total);
 
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, TWAP_BEFORE_START));
     IComposableCow(COMPOSABLE_COW).getTradeableOrderWithSignature(escrow, params, "", new bytes32[](0));
@@ -791,32 +793,32 @@ contract SwapStewardTest is Test {
   }
 
   function test_twapSwap_ownerSkipsBudget() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
+    address fromToken = cfg.fromToken;
     TWAPOrder.Data memory data = _twapData(0, 0);
-    data.partSellAmount = GUARDIAN_BUDGET / TWAP_NUM_PARTS + 1e6;
+    data.partSellAmount = cfg.guardianBudget / TWAP_NUM_PARTS + cfg.swapAmount / 10;
     uint256 total = data.partSellAmount * TWAP_NUM_PARTS;
-    assertGt(total, GUARDIAN_BUDGET);
+    assertGt(total, cfg.guardianBudget);
 
-    address escrow = _twapSwap(GovernanceV3Arbitrum.EXECUTOR_LVL_1, data);
+    address escrow = _twapSwap(cfg.executor, data);
 
-    assertEq(steward.tokenBudget(fromToken), GUARDIAN_BUDGET);
+    assertEq(steward.tokenBudget(fromToken), cfg.guardianBudget);
     assertEq(IERC20(fromToken).balanceOf(escrow), total);
   }
 
   function test_twapSwap_settleParts() public {
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address collector = address(AaveV3Arbitrum.COLLECTOR);
+    address toToken = cfg.toToken;
+    address collector = cfg.collector;
     uint256 t0 = block.timestamp;
     address escrow = _twapSwap(guardian, _twapData(0, 0));
     uint256 collectorBuyBefore = IERC20(toToken).balanceOf(collector);
 
     (GPv2Order.Data memory first, bytes memory firstSignature) = _getTwapOrderWithSignature(escrow, t0, 0);
 
-    assertEq(address(first.sellToken), AaveV3ArbitrumAssets.USDCn_UNDERLYING);
+    assertEq(address(first.sellToken), cfg.fromToken);
     assertEq(address(first.buyToken), toToken);
     assertEq(first.receiver, collector);
-    assertEq(first.sellAmount, TWAP_PART_AMOUNT);
-    assertEq(first.buyAmount, TWAP_MIN_PART_LIMIT);
+    assertEq(first.sellAmount, cfg.twapPartAmount);
+    assertEq(first.buyAmount, cfg.twapMinPartLimit);
     assertEq(first.validTo, t0 + TWAP_PART_DURATION - 1);
     assertEq(first.appData, APP_DATA);
     assertEq(first.feeAmount, 0);
@@ -828,10 +830,10 @@ contract SwapStewardTest is Test {
     deal(toToken, GPV2_SETTLEMENT, first.buyAmount);
     _settle(escrow, first, firstSignature);
 
-    assertEq(IERC20(toToken).balanceOf(collector), collectorBuyBefore + TWAP_MIN_PART_LIMIT);
-    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, first)), TWAP_PART_AMOUNT);
-    assertEq(IERC20(first.sellToken).balanceOf(escrow), TWAP_PART_AMOUNT * (TWAP_NUM_PARTS - 1));
-    assertEq(IERC20(first.sellToken).allowance(escrow, VAULT_RELAYER), TWAP_PART_AMOUNT * (TWAP_NUM_PARTS - 1));
+    assertEq(IERC20(toToken).balanceOf(collector), collectorBuyBefore + cfg.twapMinPartLimit);
+    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, first)), cfg.twapPartAmount);
+    assertEq(IERC20(first.sellToken).balanceOf(escrow), cfg.twapPartAmount * (TWAP_NUM_PARTS - 1));
+    assertEq(IERC20(first.sellToken).allowance(escrow, VAULT_RELAYER), cfg.twapPartAmount * (TWAP_NUM_PARTS - 1));
 
     vm.expectRevert(abi.encodeWithSignature("Error(string)", GPV2_ORDER_FILLED));
     _settle(escrow, first, firstSignature);
@@ -845,9 +847,9 @@ contract SwapStewardTest is Test {
     deal(toToken, GPV2_SETTLEMENT, second.buyAmount);
     _settle(escrow, second, secondSignature);
 
-    assertEq(IERC20(toToken).balanceOf(collector), collectorBuyBefore + 2 * TWAP_MIN_PART_LIMIT);
-    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, second)), TWAP_PART_AMOUNT);
-    assertEq(IERC20(first.sellToken).balanceOf(escrow), TWAP_PART_AMOUNT * (TWAP_NUM_PARTS - 2));
+    assertEq(IERC20(toToken).balanceOf(collector), collectorBuyBefore + 2 * cfg.twapMinPartLimit);
+    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, second)), cfg.twapPartAmount);
+    assertEq(IERC20(first.sellToken).balanceOf(escrow), cfg.twapPartAmount * (TWAP_NUM_PARTS - 2));
   }
 
   function test_twapSwap_span() public {
@@ -867,9 +869,9 @@ contract SwapStewardTest is Test {
   }
 
   function test_twapSwap_cancelAfterPart() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address collector = address(AaveV3Arbitrum.COLLECTOR);
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
+    address collector = cfg.collector;
     uint256 t0 = block.timestamp;
     uint256 collectorSellBefore = IERC20(fromToken).balanceOf(collector);
     address escrow = _twapSwap(guardian, _twapData(0, 0));
@@ -879,7 +881,7 @@ contract SwapStewardTest is Test {
     deal(toToken, GPV2_SETTLEMENT, first.buyAmount);
     _settle(escrow, first, signature);
 
-    uint256 remainder = TWAP_PART_AMOUNT * (TWAP_NUM_PARTS - 1);
+    uint256 remainder = cfg.twapPartAmount * (TWAP_NUM_PARTS - 1);
     vm.expectEmit(address(steward));
     emit ISwapSteward.SwapCanceled(escrow, orderHash, fromToken, remainder);
     vm.prank(guardian);
@@ -891,13 +893,13 @@ contract SwapStewardTest is Test {
     assertFalse(IComposableCow(COMPOSABLE_COW).singleOrders(escrow, orderHash));
     assertEq(IERC20(fromToken).allowance(escrow, VAULT_RELAYER), 0);
     assertEq(IERC20(fromToken).balanceOf(escrow), 0);
-    assertEq(IERC20(fromToken).balanceOf(collector), collectorSellBefore - TWAP_PART_AMOUNT);
+    assertEq(IERC20(fromToken).balanceOf(collector), collectorSellBefore - cfg.twapPartAmount);
   }
 
   function test_twapSwap_afterFinish() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address collector = address(AaveV3Arbitrum.COLLECTOR);
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
+    address collector = cfg.collector;
     uint256 t0 = block.timestamp;
     uint256 collectorSellBefore = IERC20(fromToken).balanceOf(collector);
     address escrow = _twapSwap(guardian, _twapData(0, 0));
@@ -919,12 +921,12 @@ contract SwapStewardTest is Test {
     steward.cancelSwap(escrow);
 
     assertEq(IERC20(fromToken).balanceOf(escrow), 0);
-    assertEq(IERC20(fromToken).balanceOf(collector), collectorSellBefore - TWAP_PART_AMOUNT);
+    assertEq(IERC20(fromToken).balanceOf(collector), collectorSellBefore - cfg.twapPartAmount);
   }
 
   function test_twapSwap_twoSameFromToken() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    uint256 total = TWAP_PART_AMOUNT * TWAP_NUM_PARTS;
+    address fromToken = cfg.fromToken;
+    uint256 total = cfg.twapPartAmount * TWAP_NUM_PARTS;
     TWAPOrder.Data memory data = _twapData(block.timestamp, 0);
 
     address first = _twapSwap(guardian, data);
@@ -951,39 +953,42 @@ contract SwapStewardTest is Test {
     assertEq(IERC20(fromToken).allowance(second, VAULT_RELAYER), total);
   }
 
-  function test_swapEscrow_revertsIf_notSteward() public {
-    address escrow =
-      _swap(guardian, AaveV3ArbitrumAssets.USDCn_UNDERLYING, AaveV3ArbitrumAssets.WETH_UNDERLYING, SWAP_AMOUNT);
+  function test_swapEscrow_revertsWith_OnlySteward_close() public {
+    address escrow = _swap(guardian, cfg.fromToken, cfg.toToken, cfg.swapAmount);
     (, bytes32 orderHash) = steward.swaps(escrow);
 
-    vm.startPrank(alice);
+    vm.prank(alice);
     vm.expectRevert(SwapEscrow.OnlySteward.selector);
-    SwapEscrow(escrow).close(orderHash, IERC20(AaveV3ArbitrumAssets.USDCn_UNDERLYING), alice);
+    SwapEscrow(escrow).close(orderHash, IERC20(cfg.fromToken), alice);
+  }
+
+  function test_swapEscrow_revertsWith_OnlySteward_open() public {
+    address escrow = _swap(guardian, cfg.fromToken, cfg.toToken, cfg.swapAmount);
+
+    vm.prank(alice);
     vm.expectRevert(SwapEscrow.OnlySteward.selector);
     SwapEscrow(escrow)
       .open(
         IConditionalOrder.ConditionalOrderParams(IConditionalOrder(address(0)), bytes32(0), ""),
-        IERC20(AaveV3ArbitrumAssets.USDCn_UNDERLYING),
+        IERC20(cfg.fromToken),
         1
       );
-    vm.stopPrank();
   }
 
-  function test_getExpectedOut_revertsIf_oracleNotSet() public {
-    address oracleToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address noOracleToken = AaveV3ArbitrumAssets.ARB_UNDERLYING;
-
+  function test_getExpectedOut_revertsWith_OracleNotSet_fromOracleUnset() public {
     vm.expectRevert(ISwapSteward.OracleNotSet.selector);
-    steward.getExpectedOut(1e18, noOracleToken, oracleToken);
+    steward.getExpectedOut(1e18, cfg.otherToken, cfg.toToken);
+  }
 
+  function test_getExpectedOut_revertsWith_OracleNotSet_toOracleUnset() public {
     vm.expectRevert(ISwapSteward.OracleNotSet.selector);
-    steward.getExpectedOut(1e18, oracleToken, noOracleToken);
+    steward.getExpectedOut(1e18, cfg.toToken, cfg.otherToken);
   }
 
   function test_getExpectedOut() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    uint256 amount = 100e6;
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
+    uint256 amount = 10 * cfg.swapAmount;
 
     uint256 result = steward.getExpectedOut(amount, fromToken, toToken);
 
@@ -991,16 +996,16 @@ contract SwapStewardTest is Test {
   }
 
   function test_settle() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address collector = address(AaveV3Arbitrum.COLLECTOR);
-    address escrow = _swap(guardian, fromToken, toToken, SWAP_AMOUNT);
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
+    address collector = cfg.collector;
+    address escrow = _swap(guardian, fromToken, toToken, cfg.swapAmount);
     uint32 validUntil = uint32(block.timestamp + 1 days);
 
     (GPv2Order.Data memory order, bytes memory signature) =
       _getMarketOrderWithSignature(escrow, fromToken, toToken, validUntil);
 
-    uint256 expectedBuyAmount = _expectedOut(SWAP_AMOUNT) * (BPS - SWAP_SLIPPAGE) / BPS;
+    uint256 expectedBuyAmount = _expectedOut(cfg.swapAmount) * (BPS - SWAP_SLIPPAGE) / BPS;
     assertGt(expectedBuyAmount, 0);
     assertEq(order.buyAmount, expectedBuyAmount);
 
@@ -1010,20 +1015,19 @@ contract SwapStewardTest is Test {
 
     assertEq(IERC20(toToken).balanceOf(collector), collectorBuyBefore + expectedBuyAmount);
     assertEq(IERC20(fromToken).balanceOf(escrow), 0);
-    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, order)), SWAP_AMOUNT);
+    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, order)), cfg.swapAmount);
   }
 
   function test_settle_stableWithinOracleRound() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address escrow = _swap(guardian, fromToken, toToken, SWAP_AMOUNT);
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
+    address escrow = _swap(guardian, fromToken, toToken, cfg.swapAmount);
     uint32 validUntil = uint32(block.timestamp + 1 days);
 
     (GPv2Order.Data memory first, bytes memory firstSignature) =
       _getMarketOrderWithSignature(escrow, fromToken, toToken, validUntil);
 
     vm.warp(block.timestamp + 1 hours);
-    vm.roll(block.number + 1 hours / ARBITRUM_BLOCK_TIME);
 
     (GPv2Order.Data memory second,) = _getMarketOrderWithSignature(escrow, fromToken, toToken, validUntil);
 
@@ -1034,13 +1038,13 @@ contract SwapStewardTest is Test {
     deal(address(first.buyToken), GPV2_SETTLEMENT, first.buyAmount);
 
     _settle(escrow, first, firstSignature);
-    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, first)), SWAP_AMOUNT);
+    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, first)), cfg.swapAmount);
   }
 
-  function test_settle_revertsIf_worseBuyAmount() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address escrow = _swap(guardian, fromToken, toToken, SWAP_AMOUNT);
+  function test_settle_revertsWith_InvalidHash() public {
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
+    address escrow = _swap(guardian, fromToken, toToken, cfg.swapAmount);
 
     (GPv2Order.Data memory order, bytes memory signature) =
       _getMarketOrderWithSignature(escrow, fromToken, toToken, uint32(block.timestamp + 1 days));
@@ -1051,18 +1055,18 @@ contract SwapStewardTest is Test {
     _settle(escrow, order, signature);
   }
 
-  function test_settle_revertsIf_afterOracleRoundChange() public {
-    address fromToken = AaveV3ArbitrumAssets.USDCn_UNDERLYING;
-    address toToken = AaveV3ArbitrumAssets.WETH_UNDERLYING;
-    address escrow = _swap(guardian, fromToken, toToken, SWAP_AMOUNT);
+  function test_settle_revertsWith_OrderNotValid() public {
+    address fromToken = cfg.fromToken;
+    address toToken = cfg.toToken;
+    address escrow = _swap(guardian, fromToken, toToken, cfg.swapAmount);
     uint32 validUntil = uint32(block.timestamp + 1 days);
 
     (GPv2Order.Data memory order, bytes memory signature) =
       _getMarketOrderWithSignature(escrow, fromToken, toToken, validUntil);
 
-    int256 currentAnswer = IAggregatorInterface(AaveV3ArbitrumAssets.WETH_ORACLE).latestAnswer();
+    int256 currentAnswer = IAggregatorInterface(cfg.toOracle).latestAnswer();
     vm.mockCall(
-      AaveV3ArbitrumAssets.WETH_ORACLE,
+      cfg.toOracle,
       abi.encodeWithSelector(IAggregatorInterface.latestAnswer.selector),
       abi.encode(currentAnswer * int256(BPS + ORACLE_MOVE_BPS) / int256(BPS))
     );
@@ -1075,10 +1079,10 @@ contract SwapStewardTest is Test {
   }
 
   function _expectedOut(uint256 amount) internal view returns (uint256) {
-    uint256 pFrom = uint256(IAggregatorInterface(AaveV3ArbitrumAssets.USDCn_ORACLE).latestAnswer());
-    uint256 pTo = uint256(IAggregatorInterface(AaveV3ArbitrumAssets.WETH_ORACLE).latestAnswer());
-    return (amount * pFrom * 10 ** IERC20Metadata(AaveV3ArbitrumAssets.WETH_UNDERLYING).decimals())
-      / (pTo * 10 ** IERC20Metadata(AaveV3ArbitrumAssets.USDCn_UNDERLYING).decimals());
+    uint256 pFrom = uint256(IAggregatorInterface(cfg.fromOracle).latestAnswer());
+    uint256 pTo = uint256(IAggregatorInterface(cfg.toOracle).latestAnswer());
+    return (amount * pFrom * 10 ** IERC20Metadata(cfg.toToken).decimals())
+      / (pTo * 10 ** IERC20Metadata(cfg.fromToken).decimals());
   }
 
   function _marketData(address fromToken, address toToken, uint256 amount, uint32 validUntil)
@@ -1091,12 +1095,12 @@ contract SwapStewardTest is Test {
       toToken: toToken,
       fromOracle: steward.priceOracle(fromToken),
       toOracle: steward.priceOracle(toToken),
-      receiver: address(AaveV3Arbitrum.COLLECTOR),
+      receiver: cfg.collector,
       sellAmount: amount,
       slippage: SWAP_SLIPPAGE,
       appData: APP_DATA,
       validUntil: validUntil,
-      sequencerUptimeFeed: ChainlinkArbitrum.L2_Sequencer_Uptime_Status_Feed,
+      sequencerUptimeFeed: cfg.sequencerUptimeFeed,
       sequencerGracePeriod: steward.SEQUENCER_GRACE_PERIOD()
     });
   }
@@ -1118,7 +1122,7 @@ contract SwapStewardTest is Test {
   {
     return IComposableCow(COMPOSABLE_COW)
       .getTradeableOrderWithSignature(
-        owner, _marketParams(_marketData(fromToken, toToken, SWAP_AMOUNT, validUntil)), "", new bytes32[](0)
+        owner, _marketParams(_marketData(fromToken, toToken, cfg.swapAmount, validUntil)), "", new bytes32[](0)
       );
   }
 
@@ -1162,13 +1166,13 @@ contract SwapStewardTest is Test {
     IGPv2SettlementTest(GPV2_SETTLEMENT).settle(tokens, clearingPrices, trades, interactions);
   }
 
-  function _twapData(uint256 startTime, uint256 span) internal pure returns (TWAPOrder.Data memory) {
+  function _twapData(uint256 startTime, uint256 span) internal view returns (TWAPOrder.Data memory) {
     return TWAPOrder.Data({
-      sellToken: IERC20(AaveV3ArbitrumAssets.USDCn_UNDERLYING),
-      buyToken: IERC20(AaveV3ArbitrumAssets.WETH_UNDERLYING),
-      receiver: address(AaveV3Arbitrum.COLLECTOR),
-      partSellAmount: TWAP_PART_AMOUNT,
-      minPartLimit: TWAP_MIN_PART_LIMIT,
+      sellToken: IERC20(cfg.fromToken),
+      buyToken: IERC20(cfg.toToken),
+      receiver: cfg.collector,
+      partSellAmount: cfg.twapPartAmount,
+      minPartLimit: cfg.twapMinPartLimit,
       t0: startTime,
       n: TWAP_NUM_PARTS,
       t: TWAP_PART_DURATION,
@@ -1211,6 +1215,13 @@ contract SwapStewardTest is Test {
     return escrow;
   }
 
+  function _approvePairsWithOtherToken() internal {
+    vm.startPrank(cfg.executor);
+    steward.setSwappablePair(cfg.fromToken, cfg.otherToken, true);
+    steward.setSwappablePair(cfg.otherToken, cfg.fromToken, true);
+    vm.stopPrank();
+  }
+
   function _swap(address caller, address fromToken, address toToken, uint256 amount) internal returns (address) {
     address escrow = vm.computeCreateAddress(address(steward), vm.getNonce(address(steward)));
     vm.prank(caller);
@@ -1226,16 +1237,14 @@ contract SwapStewardTest is Test {
     address vaultRelayer
   ) external returns (SwapSteward) {
     return new SwapSteward(
-      GovernanceV3Arbitrum.EXECUTOR_LVL_1,
+      cfg.executor,
       guardian,
       collector,
       composableCow,
       marketOrderHandler_,
-      limitOrderHandler,
       twapHandler,
       vaultRelayer,
-      ChainlinkArbitrum.L2_Sequencer_Uptime_Status_Feed
+      cfg.sequencerUptimeFeed
     );
   }
 }
-

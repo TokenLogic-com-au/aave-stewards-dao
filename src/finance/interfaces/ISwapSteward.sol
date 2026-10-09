@@ -76,16 +76,6 @@ interface ISwapSteward {
     uint256 slippage
   );
 
-  /// @notice Emitted when a limit swap is requested
-  /// @param orderHash Hash of the conditional order on ComposableCoW
-  /// @param fromToken The token to swap from
-  /// @param toToken The token to swap to
-  /// @param amount The amount of fromToken to swap
-  /// @param minAmountOut The minimum amount of toToken expected to receive
-  event LimitSwapRequested(
-    bytes32 orderHash, address indexed fromToken, address indexed toToken, uint256 amount, uint256 minAmountOut
-  );
-
   /// @notice Emitted when a TWAP swap is requested
   /// @param escrow The SwapEscrow clone that owns the swap
   /// @param orderHash Hash of the conditional order on ComposableCoW
@@ -111,9 +101,6 @@ interface ISwapSteward {
 
   /// @notice Returns the handler of oracle market orders
   function MARKET_ORDER_HANDLER() external view returns (address);
-
-  /// @notice Returns the handler of limit orders
-  function LIMIT_ORDER_HANDLER() external view returns (address);
 
   /// @notice Returns the handler of TWAP orders
   function TWAP_HANDLER() external view returns (address);
@@ -157,17 +144,10 @@ interface ISwapSteward {
   /// @dev Deploys a SwapEscrow clone that owns the order. Guardian swaps consume the token budget
   /// @param fromToken The address of the token to sell
   /// @param toToken The address of the token to buy
-  /// @param amount The amount of the sell token to swap, type(uint256).max for the maximum allowed
+  /// @param amount The amount of the sell token to swap. `type(uint256).max` resolves to the Collector balance of
+  ///        the sell token when called by the owner, and to the remaining token budget when called by the guardian
   /// @param slippage The slippage allowed in the swap (in BPS)
   function swap(address fromToken, address toToken, uint256 amount, uint256 slippage) external;
-
-  /// @notice Swaps a specified amount of a sell token for a buy token with a limit price
-  /// @dev Guardian swaps consume the token budget
-  /// @param fromToken Address of the token to swap from
-  /// @param toToken Address of the token to swap to
-  /// @param amount The amount of fromToken to swap, type(uint256).max for the maximum allowed
-  /// @param amountOut The limit price of the toToken (minimum amount to receive)
-  function limitSwap(address fromToken, address toToken, uint256 amount, uint256 amountOut) external;
 
   /// @notice Swaps a specified total amount of a sell token for a buy token in equal parts over time
   /// @dev Deploys a SwapEscrow clone that owns the order and holds `partSellAmount * numParts` of fromToken.

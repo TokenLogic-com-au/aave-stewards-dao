@@ -57,9 +57,6 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   address public immutable MARKET_ORDER_HANDLER;
 
   /// @inheritdoc ISwapSteward
-  address public immutable LIMIT_ORDER_HANDLER;
-
-  /// @inheritdoc ISwapSteward
   address public immutable TWAP_HANDLER;
 
   /// @inheritdoc ISwapSteward
@@ -83,7 +80,6 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     address collector,
     address composableCow,
     address marketOrderHandler,
-    address limitOrderHandler,
     address twapHandler,
     address vaultRelayer,
     address sequencerUptimeFeed
@@ -96,7 +92,6 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     COMPOSABLE_COW = IComposableCow(composableCow);
     SWAP_ESCROW_IMPLEMENTATION = address(new SwapEscrow(composableCow, vaultRelayer));
     MARKET_ORDER_HANDLER = marketOrderHandler;
-    LIMIT_ORDER_HANDLER = limitOrderHandler;
     TWAP_HANDLER = twapHandler;
     SEQUENCER_UPTIME_FEED = sequencerUptimeFeed;
   }
@@ -133,9 +128,6 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
 
     emit SwapRequested(escrow, orderHash, fromToken, toToken, fromOracle, toOracle, amount, slippage);
   }
-
-  /// @inheritdoc ISwapSteward
-  function limitSwap(address, address, uint256, uint256) external onlyOwnerOrGuardian {}
 
   /// @inheritdoc ISwapSteward
   function twapSwap(

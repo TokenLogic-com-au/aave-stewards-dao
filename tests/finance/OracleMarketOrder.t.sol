@@ -111,7 +111,7 @@ contract OracleMarketOrderTest is Test {
     assertEq(handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "").validTo, VALID_UNTIL);
   }
 
-  function test_getTradeableOrder_revertsIf_expired() public {
+  function test_getTradeableOrder_revertsWith_OrderNotValid_expired() public {
     sequencerFeed.set(0, NOW - GRACE_PERIOD - 1);
     bytes memory input = _staticInput();
     vm.warp(uint256(VALID_UNTIL) + 1);
@@ -119,40 +119,40 @@ contract OracleMarketOrderTest is Test {
     handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "");
   }
 
-  function test_getTradeableOrder_revertsIf_insufficientBalance() public {
+  function test_getTradeableOrder_revertsWith_OrderNotValid_insufficientBalance() public {
     sequencerFeed.set(0, NOW - GRACE_PERIOD - 1);
     bytes memory input = _staticInput(100e8, 1e8, SELL_AMOUNT - 1);
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, "insufficient balance"));
     handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "");
   }
 
-  function test_getTradeableOrder_revertsIf_zeroBuyAmount() public {
+  function test_getTradeableOrder_revertsWith_OrderNotValid_zeroBuyAmount() public {
     sequencerFeed.set(0, NOW - GRACE_PERIOD - 1);
     bytes memory input = _staticInput(1, 1e8 * 1e8, SELL_AMOUNT);
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, "zero buy amount"));
     handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "");
   }
 
-  function test_getTradeableOrder_revertsIf_fromOraclePriceZeroOrNegative() public {
+  function test_getTradeableOrder_revertsWith_PollTryNextBlock_fromOraclePriceZeroOrNegative() public {
     int256[2] memory badAnswers = [int256(0), int256(-1)];
     for (uint256 i; i < badAnswers.length; i++) {
       _expectInvalidOraclePrice(badAnswers[i], 1e8);
     }
   }
 
-  function test_getTradeableOrder_revertsIf_toOraclePriceZeroOrNegative() public {
+  function test_getTradeableOrder_revertsWith_PollTryNextBlock_toOraclePriceZeroOrNegative() public {
     int256[2] memory badAnswers = [int256(0), int256(-1)];
     for (uint256 i; i < badAnswers.length; i++) {
       _expectInvalidOraclePrice(100e8, badAnswers[i]);
     }
   }
 
-  function test_getTradeableOrder_revertsIf_sequencerDown() public {
+  function test_getTradeableOrder_revertsWith_PollTryNextBlock_sequencerDown() public {
     sequencerFeed.set(1, NOW - 1);
     _expectPoll(abi.encodeWithSelector(IConditionalOrder.PollTryNextBlock.selector, "sequencer down"));
   }
 
-  function test_getTradeableOrder_revertsIf_gracePeriodNotOver() public {
+  function test_getTradeableOrder_revertsWith_PollTryAtEpoch_gracePeriodNotOver() public {
     uint256 startedAt = NOW - GRACE_PERIOD;
     sequencerFeed.set(0, startedAt);
     _expectPoll(
@@ -162,12 +162,12 @@ contract OracleMarketOrderTest is Test {
     );
   }
 
-  function test_getTradeableOrder_revertsIf_sequencerStartedAtZero() public {
+  function test_getTradeableOrder_revertsWith_PollTryNextBlock_sequencerStartedAtZero() public {
     sequencerFeed.set(0, 0);
     _expectPoll(abi.encodeWithSelector(IConditionalOrder.PollTryNextBlock.selector, "invalid sequencer timestamp"));
   }
 
-  function test_getTradeableOrder_revertsIf_sequencerStartedAtInFuture() public {
+  function test_getTradeableOrder_revertsWith_PollTryNextBlock_sequencerStartedAtInFuture() public {
     sequencerFeed.set(0, NOW + 1);
     _expectPoll(abi.encodeWithSelector(IConditionalOrder.PollTryNextBlock.selector, "invalid sequencer timestamp"));
   }
