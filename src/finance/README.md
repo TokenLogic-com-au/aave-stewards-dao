@@ -247,4 +247,53 @@ Sample ERC20 to ERC20 swap with 6 decimals:
 https://explorer.cow.fi/address/0x141764c308997ec2a3AFE2cBAA1307610b126c01
 https://etherscan.io/tx/0x135a6218866f050634bf52e699b93a9374c12cba19d2de104aa8296e86d0ce51
 
-##### TWAP Swap
+# Aave <> CoW Swap: SwapSteward
+
+SwapSteward swaps Aave DAO treasury tokens through CoW Protocol, without Milkman. Every external address is a constructor argument, so the contract has no chain-specific code.
+
+Every swap is a [Composable CoW](https://github.com/cowprotocol/composable-cow) conditional order. The steward moves the sell tokens from the Collector into a new `SwapEscrow`. The escrow is an EIP-1167 clone that owns the order and holds only that swap's tokens and relayer allowance. Only the steward can call `SwapEscrow.open` and `SwapEscrow.close`.
+
+## How it works
+
+- `swap(fromToken, toToken, amount, slippage)` is a market swap. Its minimum buy amount comes from the two token oracles at each poll.
+- `twapSwap(fromToken, toToken, partSellAmount, minPartLimit, startTime, numParts, partDuration, span)` sells `partSellAmount * numParts` in equal parts on the TWAP handler. `minPartLimit` is the minimum buy amount per part.
+- `cancelSwap(escrow)` calls `SwapEscrow.close`. It removes the order from ComposableCoW, sets the relayer allowance to 0 and sends the escrow's whole sell-token balance to the Collector.
+- `getExpectedOut(amount, fromToken, toToken)` is a view. It returns the oracle expected out before slippage.
+
+| Constant | Value |
+| --- | --- |
+| `MAX_SLIPPAGE` | `10_00`, 10% in basis points |
+| `ORDER_LIFETIME` | `1 days` |
+| `SEQUENCER_GRACE_PERIOD` | `1 hours` |
+
+## Roles and limits
+
+The owner is the DAO. The guardian acts without governance, within the limits the owner sets.
+
+- **Owner only.** Only the owner can call `increaseTokenBudget`, `decreaseTokenBudget`, `setSwappablePair` and `setTokenOracle`. The guardian cannot approve a pair, set an oracle or raise a budget.
+- **Owner or guardian.** The owner or the guardian can call `swap`, `twapSwap`, `cancelSwap`, both `rescueToken` overloads and `updateGuardian`.
+- **Pairs.** `swap` and `twapSwap` revert with `UnrecognizedTokenSwap` unless the owner approved the ordered pair.
+- **Budget.** A guardian swap reduces `tokenBudget[fromToken]` by its full sell amount and reverts with `InsufficientBudget` if the budget is lower. An owner swap does not use the budget. With `amount = type(uint256).max`, `swap` sells the Collector's balance of `fromToken` when the owner calls it and the remaining budget when the guardian calls it.
+- **Slippage.** `swap` reverts with `InvalidSlippage` above `MAX_SLIPPAGE`.
+- **Receiver.** `COLLECTOR` is immutable. It receives the bought tokens of every order and the tokens returned by every cancel and rescue.
+- **Cancel.** `swaps` stores the sell token and the order hash of each open swap, not who opened it. Either role can cancel any open swap, including one the other role opened. A cancel does not restore budget. A guardian swap spends its amount from the budget whether it fills, expires or is cancelled.
+- **Rescue.** `rescueToken` sends tokens the steward itself holds to the Collector. It never sends an escrow's tokens.
+- **Guardian handover.** Budgets are per token, so a new guardian address has the same budget.
+
+## Trust assumptions
+
+The steward depends on the Collector, the token oracles and CoW Protocol.
+
+- **Collector.** The steward must hold `FUNDS_ADMIN` on the Collector, because the Collector lets only that role call `transfer`. The steward takes tokens from the Collector only when it opens a swap.
+- **Oracle prices.** Prices come from `latestAnswer` only. `setTokenOracle` requires 8 decimals and a positive answer. No contract checks the price oracles for staleness. The steward does not check what an oracle quotes, so the owner must set both oracles of a pair in the same currency.
+- **SVR feeds.** A Chainlink SVR feed uses a DualAggregator. If a token oracle is the secondary proxy of an SVR feed, a round reported on the primary route becomes visible only after the aggregator's cutoff time. The price an order uses can lag the newest round.
+- **Slippage cap.** The minimum buy amount is the oracle expected out times `(10_000 - slippage) / 10_000`. With `MAX_SLIPPAGE` at `10_00` the lowest minimum buy amount is 90% of the oracle expected out, rounded down. The cap is relative to the oracle price, not to a market price.
+- **Token decimals.** `OracleMath.getExpectedOut` calls `decimals()` on both tokens. `swap` does not call `decimals()` when it creates the order, so a token without `decimals()` still moves into the escrow. The handler then reverts on every poll and `getExpectedOut` reverts. The owner approves every pair and is trusted to approve only tokens that implement `decimals()`. `twapSwap` reads no oracle and no `decimals()`.
+- **Settlement and solvers.** Only a solver on the allow-list of the `GPv2Settlement` authenticator can settle. The authenticator, `GPv2AllowListAuthentication`, runs behind an EIP-1967 proxy. Its manager adds and removes solvers. The proxy admin can replace the manager with `setManager` and can upgrade the implementation. The steward controls none of this. A solver decides when and how to fill. The settlement rejects an order past its `validTo` or below its minimum buy amount.
+- **Vault relayer.** `SwapEscrow.open` approves the relayer for the exact amount sent to the escrow. That amount is the sell amount for `swap` and `partSellAmount * numParts` for `twapSwap`. CoW's `GPv2VaultRelayer` pulls only when the settlement contract calls it. The steward checks only that the relayer address is not zero.
+- **Watch-tower.** CoW's watch-tower polls ComposableCoW for the order and posts it to the CoW API. `open` calls `create` with `dispatch = true`, which emits the `ConditionalOrderCreated` event the watch-tower indexes. A watch-tower outage stops only the automatic polling and posting. An order already posted can still settle until its `validTo`, as long as `verify` passes. `getTradeableOrderWithSignature` on ComposableCoW is public, so anyone can post the order. `GPv2Settlement` checks the solver and the signature, not who posted the order. `cancelSwap` is the way to stop an order and return the tokens.
+- **Order creation is not validated.** `ComposableCoW.create` only checks that the handler is not the zero address. It does not validate TWAP data, and invalid TWAP data makes the handler revert on every poll. So `twapSwap` calls `TWAPOrder.validate` before it moves any funds. `TWAPOrder.validate` comes from composable-cow pinned at commit `c0435953` (tag `ack3-rev2.0`) in `lib/composable-cow`. The steward does not check that `TWAP_HANDLER` applies the same rules.
+- **L2 sequencer.** When `SEQUENCER_UPTIME_FEED` is set, `OracleMarketOrder` reverts with `PollTryNextBlock` while the feed reports the sequencer as down or reports an invalid start time. It reverts with `PollTryAtEpoch` until `SEQUENCER_GRACE_PERIOD` has passed since the sequencer came back up. A zero feed address disables the check, for chains without a sequencer such as Mainnet. The TWAP path has no sequencer check. `TWAP_HANDLER` takes no feed and `twapSwap` passes none.
+- **Escrow after a fill.** Before `validUntil`, the market handler's `getTradeableOrder` reverts with `OrderNotValid("insufficient balance")` when the escrow holds less than `sellAmount`, as it does after a fill. After `validUntil` it reverts with `OrderNotValid("order expired")` instead, because the expiry check runs first. The watch-tower drops the order on `OrderNotValid`. The TWAP handler does not read the escrow balance. The swap stays in `swaps` and the order stays registered until `cancelSwap` calls `close`.
+- **Price manipulation.** A market order reads no on-chain spot pool, so moving a pool does not move its minimum buy amount. The generated order and its hash change exactly when the computed buy amount changes. The buy amount comes from both oracle answers and both tokens' `decimals()`, and is rounded down. An answer change that leaves the rounded buy amount the same keeps the same order. A changed buy amount makes the old order revert with `OrderNotValid("invalid hash")`. `swap` sets `validUntil` to `block.timestamp + ORDER_LIFETIME` at creation, which bounds how long the order is valid. A TWAP's `minPartLimit` does not change after creation and must be above 0. Nothing checks it against an oracle. For a guardian TWAP, the budget is the only bound on the amount sold at that price floor.
+- **External control.** The steward and its escrows hold ComposableCoW, both handlers and the relayer as immutables and cannot change them after construction. ComposableCoW decides whether to authorise an escrow's order and calls the handler's `verify`. Its source has no owner, admin or upgrade function. The TWAP handler's source has no such function either. The handler sets each part's time window. The steward does not check the code at `MARKET_ORDER_HANDLER` or `TWAP_HANDLER`.
