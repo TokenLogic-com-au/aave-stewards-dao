@@ -7,7 +7,7 @@ import {BaseConditionalOrder} from "composable-cow/BaseConditionalOrder.sol";
 import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
 import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
-import {OracleMath} from "src/finance/libraries/OracleMath.sol";
+import {OracleMath} from "src/finance/swap/libraries/OracleMath.sol";
 
 /**
  * @title OracleMarketOrder

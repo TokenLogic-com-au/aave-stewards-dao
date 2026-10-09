@@ -8,8 +8,8 @@ import {GovernanceV3Arbitrum} from "aave-address-book/GovernanceV3Arbitrum.sol";
 import {AaveV3Ethereum} from "aave-address-book/AaveV3Ethereum.sol";
 import {AaveV3Arbitrum} from "aave-address-book/AaveV3Arbitrum.sol";
 import {ChainlinkArbitrum} from "aave-address-book/ChainlinkArbitrum.sol";
-import {SwapSteward} from "src/finance/SwapSteward.sol";
-import {OracleMarketOrder} from "src/finance/OracleMarketOrder.sol";
+import {SwapSteward} from "src/finance/swap/SwapSteward.sol";
+import {OracleMarketOrder} from "src/finance/swap/OracleMarketOrder.sol";
 
 library DeploymentLibrary {
   function _deployOracleMarketOrder() internal returns (address) {
@@ -49,7 +49,7 @@ contract Deploy is Script {
   // https://app.safe.global/home?safe=arb1:0x22740deBa78d5a0c24C58C740e3715ec29de1bFa
   // https://etherscan.io/address/0x22740deBa78d5a0c24C58C740e3715ec29de1bFa
   // https://arbiscan.io/address/0x22740deBa78d5a0c24C58C740e3715ec29de1bFa
-  
+
   // Signers are nested Safes:
   // Safe 2-of-5 - TokenLogic - 0x9DE1d45e2786b03498289959203F25b29B4D1193
   //   https://etherscan.io/address/0x9DE1d45e2786b03498289959203F25b29B4D1193

@@ -15,12 +15,12 @@ import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
 import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
-import {OracleMarketOrder} from "src/finance/OracleMarketOrder.sol";
-import {OracleMath} from "src/finance/libraries/OracleMath.sol";
+import {OracleMarketOrder} from "src/finance/swap/OracleMarketOrder.sol";
+import {OracleMath} from "src/finance/swap/libraries/OracleMath.sol";
 import {TWAPOrder} from "composable-cow/types/twap/libraries/TWAPOrder.sol";
 import {IERC20 as GPv2IERC20} from "cowprotocol/contracts/interfaces/IERC20.sol";
-import {SwapEscrow} from "src/finance/SwapEscrow.sol";
-import {ISwapSteward} from "src/finance/interfaces/ISwapSteward.sol";
+import {SwapEscrow} from "src/finance/swap/SwapEscrow.sol";
+import {ISwapSteward} from "src/finance/swap/interfaces/ISwapSteward.sol";
 
 /**
  * @title SwapSteward

@@ -3,10 +3,10 @@ pragma solidity ^0.8.0;
 
 import {Test} from "forge-std/Test.sol";
 
-import {OracleMarketOrder} from "src/finance/OracleMarketOrder.sol";
+import {OracleMarketOrder} from "src/finance/swap/OracleMarketOrder.sol";
 import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
 import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
-import {MockAggregator} from "tests/finance/OracleMocks.sol";
+import {MockAggregator} from "tests/finance/swap/OracleMocks.sol";
 
 contract MockSequencerFeed {
   int256 public answer;
@@ -24,7 +24,7 @@ contract MockSequencerFeed {
 
 /**
  * @dev Test for OracleMarketOrder handler
- * command: forge test -vvv --match-path tests/finance/OracleMarketOrder.t.sol
+ * command: forge test -vvv --match-path tests/finance/swap/OracleMarketOrder.t.sol
  */
 contract OracleMarketOrderTest is Test {
   uint32 internal constant GRACE_PERIOD = 3600;

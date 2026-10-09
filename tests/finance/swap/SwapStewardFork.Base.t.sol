@@ -4,9 +4,9 @@ pragma solidity ^0.8.0;
 import {AaveV3Base, AaveV3BaseAssets} from "aave-address-book/AaveV3Base.sol";
 import {ChainlinkBase} from "aave-address-book/ChainlinkBase.sol";
 import {GovernanceV3Base} from "aave-address-book/GovernanceV3Base.sol";
-import {SwapStewardTestBase} from "tests/finance/SwapStewardTestBase.sol";
+import {SwapStewardForkTestBase} from "tests/finance/swap/SwapStewardForkTestBase.sol";
 
-contract SwapStewardBaseTest is SwapStewardTestBase {
+contract SwapStewardForkBaseTest is SwapStewardForkTestBase {
   function _config() internal pure override returns (ChainConfig memory) {
     return ChainConfig({
       rpcAlias: "base",

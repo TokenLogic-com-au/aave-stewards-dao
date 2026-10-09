@@ -3,9 +3,9 @@ pragma solidity ^0.8.0;
 
 import {AaveV3Ethereum, AaveV3EthereumAssets} from "aave-address-book/AaveV3Ethereum.sol";
 import {GovernanceV3Ethereum} from "aave-address-book/GovernanceV3Ethereum.sol";
-import {SwapStewardTestBase} from "tests/finance/SwapStewardTestBase.sol";
+import {SwapStewardForkTestBase} from "tests/finance/swap/SwapStewardForkTestBase.sol";
 
-contract SwapStewardMainnetTest is SwapStewardTestBase {
+contract SwapStewardForkMainnetTest is SwapStewardForkTestBase {
   function _config() internal pure override returns (ChainConfig memory) {
     return ChainConfig({
       rpcAlias: "mainnet",

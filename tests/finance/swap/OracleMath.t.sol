@@ -4,8 +4,8 @@ pragma solidity ^0.8.0;
 
 import {Test} from "forge-std/Test.sol";
 
-import {OracleMath} from "src/finance/libraries/OracleMath.sol";
-import {MockAggregator} from "tests/finance/OracleMocks.sol";
+import {OracleMath} from "src/finance/swap/libraries/OracleMath.sol";
+import {MockAggregator} from "tests/finance/swap/OracleMocks.sol";
 
 contract OracleMathHarness {
   function getExpectedOut(address fromToken, address toToken, address fromOracle, address toOracle, uint256 amount)
@@ -122,7 +122,6 @@ contract OracleMathTest is Test {
   }
 
   function test_getMinOut_roundsDown() public {
-    // expected out 333_333, * 9_950 / 10_000 = 3_316_663_350 / 10_000 = 331_666.335
     uint256 out =
       harness.getMinOut(_newMockToken(18), _newMockToken(6), _newMockOracle(1e8), _newMockOracle(3e8), 1e18, 50);
     assertEq(out, 331_666);
