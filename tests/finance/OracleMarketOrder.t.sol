@@ -4,8 +4,8 @@ pragma solidity ^0.8.0;
 import {Test} from "forge-std/Test.sol";
 
 import {OracleMarketOrder} from "src/finance/OracleMarketOrder.sol";
-import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
-import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
+import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
+import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
 import {MockAggregator} from "tests/finance/OracleMocks.sol";
 
 contract MockSequencerFeed {

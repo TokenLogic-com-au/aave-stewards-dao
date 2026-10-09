@@ -8,11 +8,15 @@ import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessCon
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IWithGuardian} from "solidity-utils/contracts/access-control/interfaces/IWithGuardian.sol";
-import {IGPv2Settlement} from "src/finance/interfaces/IGPv2Settlement.sol";
-import {IAggregatorInterface} from "src/finance/interfaces/IAggregatorInterface.sol";
+import {GPv2Settlement} from "cowprotocol/contracts/GPv2Settlement.sol";
+import {GPv2AllowListAuthentication} from "cowprotocol/contracts/GPv2AllowListAuthentication.sol";
+import {GPv2Trade} from "cowprotocol/contracts/libraries/GPv2Trade.sol";
+import {GPv2Interaction} from "cowprotocol/contracts/libraries/GPv2Interaction.sol";
+import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
-import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
-import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
+import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
+import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
+import {IERC20 as GPv2IERC20} from "cowprotocol/contracts/interfaces/IERC20.sol";
 import {
   TWAPOrder,
   INVALID_TOKEN,
@@ -21,50 +25,14 @@ import {
   INVALID_NUM_PARTS,
   INVALID_FREQUENCY,
   INVALID_SPAN
-} from "src/finance/libraries/TWAPOrder.sol";
+} from "composable-cow/types/twap/libraries/TWAPOrder.sol";
 import {OracleMarketOrder} from "src/finance/OracleMarketOrder.sol";
-import {INVALID_HASH} from "src/finance/BaseConditionalOrder.sol";
+import {INVALID_HASH} from "composable-cow/BaseConditionalOrder.sol";
 import {ERC1271Forwarder} from "src/finance/ERC1271Forwarder.sol";
 import {ISwapSteward} from "src/finance/interfaces/ISwapSteward.sol";
 import {SwapEscrow} from "src/finance/SwapEscrow.sol";
 import {SwapSteward} from "src/finance/SwapSteward.sol";
 import {MockAggregator} from "tests/finance/OracleMocks.sol";
-
-struct GPv2TradeData {
-  uint256 sellTokenIndex;
-  uint256 buyTokenIndex;
-  address receiver;
-  uint256 sellAmount;
-  uint256 buyAmount;
-  uint32 validTo;
-  bytes32 appData;
-  uint256 feeAmount;
-  uint256 flags;
-  uint256 executedAmount;
-  bytes signature;
-}
-
-struct GPv2InteractionData {
-  address target;
-  uint256 value;
-  bytes callData;
-}
-
-interface IGPv2SettlementTest {
-  function settle(
-    IERC20[] calldata tokens,
-    uint256[] calldata clearingPrices,
-    GPv2TradeData[] calldata trades,
-    GPv2InteractionData[][3] calldata interactions
-  ) external;
-  function authenticator() external view returns (address);
-  function filledAmount(bytes calldata orderUid) external view returns (uint256);
-}
-
-interface IGPv2AllowListAuthentication {
-  function manager() external view returns (address);
-  function addSolver(address solver) external;
-}
 
 /**
  * @dev Test for SwapSteward contract
@@ -94,6 +62,7 @@ abstract contract SwapStewardTestBase is Test {
   address internal constant COMPOSABLE_COW = 0xfdaFc9d1902f4e0b84f65F49f244b32b31013b74;
   address internal constant TWAP_HANDLER = 0x6cF1e9cA41f7611dEf408122793c358a3d11E5a5;
   address internal constant GPV2_SETTLEMENT = 0x9008D19f58AAbD9eD0D60971565AA8510560ab41;
+  GPv2Settlement internal constant SETTLEMENT = GPv2Settlement(payable(GPV2_SETTLEMENT));
   address internal constant VAULT_RELAYER = 0xC92E8bdf79f0507f65a392b0ab4667716BFE0110;
 
   bytes32 internal constant APP_DATA = bytes32(0);
@@ -151,9 +120,9 @@ abstract contract SwapStewardTestBase is Test {
     steward.increaseTokenBudget(cfg.fromToken, cfg.guardianBudget);
     vm.stopPrank();
 
-    address authenticator = IGPv2SettlementTest(GPV2_SETTLEMENT).authenticator();
-    vm.prank(IGPv2AllowListAuthentication(authenticator).manager());
-    IGPv2AllowListAuthentication(authenticator).addSolver(solver);
+    address authenticator = address(SETTLEMENT.authenticator());
+    vm.prank(GPv2AllowListAuthentication(authenticator).manager());
+    GPv2AllowListAuthentication(authenticator).addSolver(solver);
   }
 
   function test_constructor_revertsWith_InvalidZeroAddress() public {
@@ -274,7 +243,7 @@ abstract contract SwapStewardTestBase is Test {
   }
 
   function test_setTokenOracle_revertsWith_PriceFeedIncompatibleDecimals() public {
-    vm.mockCall(cfg.fromOracle, abi.encodeWithSelector(IAggregatorInterface.decimals.selector), abi.encode(18));
+    vm.mockCall(cfg.fromOracle, abi.encodeWithSelector(AggregatorInterface.decimals.selector), abi.encode(18));
 
     vm.startPrank(cfg.executor);
     vm.expectRevert(ISwapSteward.PriceFeedIncompatibleDecimals.selector);
@@ -433,7 +402,7 @@ abstract contract SwapStewardTestBase is Test {
     for (uint256 i; i < oracles.length; i++) {
       for (uint256 j; j < badAnswers.length; j++) {
         vm.mockCall(
-          oracles[i], abi.encodeWithSelector(IAggregatorInterface.latestAnswer.selector), abi.encode(badAnswers[j])
+          oracles[i], abi.encodeWithSelector(AggregatorInterface.latestAnswer.selector), abi.encode(badAnswers[j])
         );
         vm.prank(guardian);
         vm.expectRevert(ISwapSteward.PriceFeedInvalidAnswer.selector);
@@ -539,7 +508,7 @@ abstract contract SwapStewardTestBase is Test {
     assertEq(order.sellTokenBalance, GPv2Order.BALANCE_ERC20);
     assertEq(order.buyTokenBalance, GPv2Order.BALANCE_ERC20);
 
-    bytes32 orderDigest = GPv2Order.hash(order, IGPv2Settlement(GPV2_SETTLEMENT).domainSeparator());
+    bytes32 orderDigest = GPv2Order.hash(order, SETTLEMENT.domainSeparator());
     assertEq(SwapEscrow(escrow).isValidSignature(orderDigest, signature), IERC1271.isValidSignature.selector);
   }
 
@@ -628,7 +597,7 @@ abstract contract SwapStewardTestBase is Test {
 
   function test_twapSwap_revertsWith_UnrecognizedTokenSwap_pairNotApproved() public {
     TWAPOrder.Data memory data = _twapData(0, 0);
-    data.buyToken = IERC20(cfg.otherToken);
+    data.buyToken = GPv2IERC20(cfg.otherToken);
 
     vm.expectRevert(ISwapSteward.UnrecognizedTokenSwap.selector);
     _twapSwap(guardian, data);
@@ -669,7 +638,7 @@ abstract contract SwapStewardTestBase is Test {
     steward.setSwappablePair(cfg.fromToken, address(0), true);
 
     TWAPOrder.Data memory data = _twapData(0, 0);
-    data.buyToken = IERC20(address(0));
+    data.buyToken = GPv2IERC20(address(0));
 
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, INVALID_TOKEN));
     _twapSwap(guardian, data);
@@ -831,9 +800,9 @@ abstract contract SwapStewardTestBase is Test {
     _settle(escrow, first, firstSignature);
 
     assertEq(IERC20(toToken).balanceOf(collector), collectorBuyBefore + cfg.twapMinPartLimit);
-    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, first)), cfg.twapPartAmount);
-    assertEq(IERC20(first.sellToken).balanceOf(escrow), cfg.twapPartAmount * (TWAP_NUM_PARTS - 1));
-    assertEq(IERC20(first.sellToken).allowance(escrow, VAULT_RELAYER), cfg.twapPartAmount * (TWAP_NUM_PARTS - 1));
+    assertEq(SETTLEMENT.filledAmount(_orderUid(escrow, first)), cfg.twapPartAmount);
+    assertEq(first.sellToken.balanceOf(escrow), cfg.twapPartAmount * (TWAP_NUM_PARTS - 1));
+    assertEq(first.sellToken.allowance(escrow, VAULT_RELAYER), cfg.twapPartAmount * (TWAP_NUM_PARTS - 1));
 
     vm.expectRevert(abi.encodeWithSignature("Error(string)", GPV2_ORDER_FILLED));
     _settle(escrow, first, firstSignature);
@@ -848,8 +817,8 @@ abstract contract SwapStewardTestBase is Test {
     _settle(escrow, second, secondSignature);
 
     assertEq(IERC20(toToken).balanceOf(collector), collectorBuyBefore + 2 * cfg.twapMinPartLimit);
-    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, second)), cfg.twapPartAmount);
-    assertEq(IERC20(first.sellToken).balanceOf(escrow), cfg.twapPartAmount * (TWAP_NUM_PARTS - 2));
+    assertEq(SETTLEMENT.filledAmount(_orderUid(escrow, second)), cfg.twapPartAmount);
+    assertEq(first.sellToken.balanceOf(escrow), cfg.twapPartAmount * (TWAP_NUM_PARTS - 2));
   }
 
   function test_twapSwap_span() public {
@@ -1015,7 +984,7 @@ abstract contract SwapStewardTestBase is Test {
 
     assertEq(IERC20(toToken).balanceOf(collector), collectorBuyBefore + expectedBuyAmount);
     assertEq(IERC20(fromToken).balanceOf(escrow), 0);
-    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, order)), cfg.swapAmount);
+    assertEq(SETTLEMENT.filledAmount(_orderUid(escrow, order)), cfg.swapAmount);
   }
 
   function test_settle_stableWithinOracleRound() public {
@@ -1031,14 +1000,14 @@ abstract contract SwapStewardTestBase is Test {
 
     (GPv2Order.Data memory second,) = _getMarketOrderWithSignature(escrow, fromToken, toToken, validUntil);
 
-    bytes32 domainSeparator = IGPv2Settlement(GPV2_SETTLEMENT).domainSeparator();
+    bytes32 domainSeparator = SETTLEMENT.domainSeparator();
     assertEq(GPv2Order.hash(first, domainSeparator), GPv2Order.hash(second, domainSeparator));
     assertEq(first.validTo, second.validTo);
     assertEq(_orderUid(escrow, first), _orderUid(escrow, second));
     deal(address(first.buyToken), GPV2_SETTLEMENT, first.buyAmount);
 
     _settle(escrow, first, firstSignature);
-    assertEq(IGPv2SettlementTest(GPV2_SETTLEMENT).filledAmount(_orderUid(escrow, first)), cfg.swapAmount);
+    assertEq(SETTLEMENT.filledAmount(_orderUid(escrow, first)), cfg.swapAmount);
   }
 
   function test_settle_revertsWith_InvalidHash() public {
@@ -1064,10 +1033,10 @@ abstract contract SwapStewardTestBase is Test {
     (GPv2Order.Data memory order, bytes memory signature) =
       _getMarketOrderWithSignature(escrow, fromToken, toToken, validUntil);
 
-    int256 currentAnswer = IAggregatorInterface(cfg.toOracle).latestAnswer();
+    int256 currentAnswer = AggregatorInterface(cfg.toOracle).latestAnswer();
     vm.mockCall(
       cfg.toOracle,
-      abi.encodeWithSelector(IAggregatorInterface.latestAnswer.selector),
+      abi.encodeWithSelector(AggregatorInterface.latestAnswer.selector),
       abi.encode(currentAnswer * int256(BPS + ORACLE_MOVE_BPS) / int256(BPS))
     );
 
@@ -1079,8 +1048,8 @@ abstract contract SwapStewardTestBase is Test {
   }
 
   function _expectedOut(uint256 amount) internal view returns (uint256) {
-    uint256 pFrom = uint256(IAggregatorInterface(cfg.fromOracle).latestAnswer());
-    uint256 pTo = uint256(IAggregatorInterface(cfg.toOracle).latestAnswer());
+    uint256 pFrom = uint256(AggregatorInterface(cfg.fromOracle).latestAnswer());
+    uint256 pTo = uint256(AggregatorInterface(cfg.toOracle).latestAnswer());
     return (amount * pFrom * 10 ** IERC20Metadata(cfg.toToken).decimals())
       / (pTo * 10 ** IERC20Metadata(cfg.fromToken).decimals());
   }
@@ -1130,13 +1099,11 @@ abstract contract SwapStewardTestBase is Test {
   /// https://github.com/cowprotocol/contracts/blob/a10f40788af29467e87de3dbf2196662b0a6b500/src/contracts/libraries/GPv2Order.sol#L167-L212
   function _orderUid(address owner, GPv2Order.Data memory order) internal view returns (bytes memory orderUid) {
     orderUid = new bytes(GPv2Order.UID_LENGTH);
-    GPv2Order.packOrderUidParams(
-      orderUid, GPv2Order.hash(order, IGPv2Settlement(GPV2_SETTLEMENT).domainSeparator()), owner, order.validTo
-    );
+    GPv2Order.packOrderUidParams(orderUid, GPv2Order.hash(order, SETTLEMENT.domainSeparator()), owner, order.validTo);
   }
 
   function _settle(address owner, GPv2Order.Data memory order, bytes memory signature) internal {
-    IERC20[] memory tokens = new IERC20[](2);
+    GPv2IERC20[] memory tokens = new GPv2IERC20[](2);
     tokens[0] = order.sellToken;
     tokens[1] = order.buyToken;
 
@@ -1144,8 +1111,8 @@ abstract contract SwapStewardTestBase is Test {
     clearingPrices[0] = order.buyAmount;
     clearingPrices[1] = order.sellAmount;
 
-    GPv2TradeData[] memory trades = new GPv2TradeData[](1);
-    trades[0] = GPv2TradeData({
+    GPv2Trade.Data[] memory trades = new GPv2Trade.Data[](1);
+    trades[0] = GPv2Trade.Data({
       sellTokenIndex: 0,
       buyTokenIndex: 1,
       receiver: order.receiver,
@@ -1160,16 +1127,16 @@ abstract contract SwapStewardTestBase is Test {
     });
 
     // pre, intra and post-settlement interactions; all empty because the settlement already holds the buy tokens
-    GPv2InteractionData[][3] memory interactions;
+    GPv2Interaction.Data[][3] memory interactions;
 
     vm.prank(solver);
-    IGPv2SettlementTest(GPV2_SETTLEMENT).settle(tokens, clearingPrices, trades, interactions);
+    SETTLEMENT.settle(tokens, clearingPrices, trades, interactions);
   }
 
   function _twapData(uint256 startTime, uint256 span) internal view returns (TWAPOrder.Data memory) {
     return TWAPOrder.Data({
-      sellToken: IERC20(cfg.fromToken),
-      buyToken: IERC20(cfg.toToken),
+      sellToken: GPv2IERC20(cfg.fromToken),
+      buyToken: GPv2IERC20(cfg.toToken),
       receiver: cfg.collector,
       partSellAmount: cfg.twapPartAmount,
       minPartLimit: cfg.twapMinPartLimit,

@@ -5,7 +5,8 @@ pragma solidity ^0.8.0;
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
 import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {IAggregatorInterface} from "src/finance/interfaces/IAggregatorInterface.sol";
+import {PercentageMath} from "aave-v3-origin/contracts/protocol/libraries/math/PercentageMath.sol";
+import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 
 /**
  * @title OracleMath
@@ -13,9 +14,6 @@ import {IAggregatorInterface} from "src/finance/interfaces/IAggregatorInterface.
  * @notice Computes the expected output amount of a swap from two 8-decimal Chainlink-style oracle prices
  */
 library OracleMath {
-  /// @dev 100_00 is equal to 100%
-  uint256 internal constant BPS = 100_00;
-
   /// @notice Thrown when an oracle reports a price lower than or equal to zero
   /// @param oracle Address of the oracle that reported the price
   error InvalidPrice(address oracle);
@@ -46,7 +44,7 @@ library OracleMath {
 
   /**
    * @notice Returns the minimum amount of toToken accepted for `amount` of fromToken, the expected out reduced by slippage, rounded down
-   * @dev Reverts on underflow if `slippage` exceeds BPS, callers must cap it.
+   * @dev Reverts on underflow if `slippage` exceeds `PercentageMath.PERCENTAGE_FACTOR`, callers must cap it.
    * @param fromToken Token being sold
    * @param toToken Token being bought
    * @param fromOracle Oracle pricing fromToken
@@ -63,11 +61,13 @@ library OracleMath {
     uint256 amount,
     uint256 slippage
   ) internal view returns (uint256) {
-    return getExpectedOut(fromToken, toToken, fromOracle, toOracle, amount) * (BPS - slippage) / BPS;
+    return PercentageMath.percentMulFloor(
+      getExpectedOut(fromToken, toToken, fromOracle, toOracle, amount), PercentageMath.PERCENTAGE_FACTOR - slippage
+    );
   }
 
   function _price(address oracle) private view returns (uint256) {
-    int256 answer = IAggregatorInterface(oracle).latestAnswer();
+    int256 answer = AggregatorInterface(oracle).latestAnswer();
     if (answer <= 0) revert InvalidPrice(oracle);
 
     return SafeCast.toUint256(answer);

@@ -4,8 +4,8 @@ pragma solidity ^0.8.0;
 // composable-cow tag ack3-rev2.0 (file last changed in 9f0c6110ec2eb498341a0d45a0168e735a18ed1b).
 // Subset of the external API: PayloadStruct, singleOrders, domainSeparator, create, remove, hash, isValidSafeSignature.
 
-import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
-import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
+import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
+import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
 
 interface IComposableCow {
   /// A struct to encapsulate order parameters / offchain input

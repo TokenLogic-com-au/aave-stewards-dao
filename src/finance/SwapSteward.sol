@@ -12,12 +12,13 @@ import {RescuableBase} from "solidity-utils/contracts/utils/RescuableBase.sol";
 
 import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
 
-import {IAggregatorInterface} from "src/finance/interfaces/IAggregatorInterface.sol";
+import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
-import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
+import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
 import {OracleMarketOrder} from "src/finance/OracleMarketOrder.sol";
 import {OracleMath} from "src/finance/libraries/OracleMath.sol";
-import {TWAPOrder} from "src/finance/libraries/TWAPOrder.sol";
+import {TWAPOrder} from "composable-cow/types/twap/libraries/TWAPOrder.sol";
+import {IERC20 as GPv2IERC20} from "cowprotocol/contracts/interfaces/IERC20.sol";
 import {SwapEscrow} from "src/finance/SwapEscrow.sol";
 import {ISwapSteward} from "src/finance/interfaces/ISwapSteward.sol";
 
@@ -146,8 +147,8 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     if (startTime != 0 && startTime < block.timestamp) revert StartTimeInPast();
 
     TWAPOrder.Data memory twap = TWAPOrder.Data({
-      sellToken: IERC20(fromToken),
-      buyToken: IERC20(toToken),
+      sellToken: GPv2IERC20(fromToken),
+      buyToken: GPv2IERC20(toToken),
       receiver: COLLECTOR,
       partSellAmount: partSellAmount,
       minPartLimit: minPartLimit,
@@ -203,10 +204,10 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     if (oracle == address(0)) revert InvalidZeroAddress();
 
     // Validate oracle has necessary functions
-    if (IAggregatorInterface(oracle).decimals() != 8) {
+    if (AggregatorInterface(oracle).decimals() != 8) {
       revert PriceFeedIncompatibleDecimals();
     }
-    if (IAggregatorInterface(oracle).latestAnswer() <= 0) {
+    if (AggregatorInterface(oracle).latestAnswer() <= 0) {
       revert PriceFeedInvalidAnswer();
     }
 
@@ -284,7 +285,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     _validateCommon(fromToken, toToken, amount);
 
     if (fromOracle == address(0) || toOracle == address(0)) revert OracleNotSet();
-    if (IAggregatorInterface(fromOracle).latestAnswer() <= 0 || IAggregatorInterface(toOracle).latestAnswer() <= 0) {
+    if (AggregatorInterface(fromOracle).latestAnswer() <= 0 || AggregatorInterface(toOracle).latestAnswer() <= 0) {
       revert PriceFeedInvalidAnswer();
     }
   }

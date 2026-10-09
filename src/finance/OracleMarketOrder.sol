@@ -2,12 +2,11 @@
 
 pragma solidity ^0.8.0;
 
-import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {BaseConditionalOrder} from "src/finance/BaseConditionalOrder.sol";
-import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
-import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
-import {ISequencerUptimeFeed} from "src/finance/interfaces/ISequencerUptimeFeed.sol";
-import {IAggregatorInterface} from "src/finance/interfaces/IAggregatorInterface.sol";
+import {IERC20} from "cowprotocol/contracts/interfaces/IERC20.sol";
+import {BaseConditionalOrder} from "composable-cow/BaseConditionalOrder.sol";
+import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
+import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
+import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 import {OracleMath} from "src/finance/libraries/OracleMath.sol";
 
 /**
@@ -69,8 +68,7 @@ contract OracleMarketOrder is BaseConditionalOrder {
     }
 
     if (
-      IAggregatorInterface(data.fromOracle).latestAnswer() <= 0
-        || IAggregatorInterface(data.toOracle).latestAnswer() <= 0
+      AggregatorInterface(data.fromOracle).latestAnswer() <= 0 || AggregatorInterface(data.toOracle).latestAnswer() <= 0
     ) {
       revert IConditionalOrder.PollTryNextBlock(INVALID_ORACLE_PRICE);
     }
@@ -97,7 +95,7 @@ contract OracleMarketOrder is BaseConditionalOrder {
   }
 
   function _checkSequencer(address feed, uint32 gracePeriod) internal view {
-    (, int256 answer, uint256 startedAt,,) = ISequencerUptimeFeed(feed).latestRoundData();
+    (, int256 answer, uint256 startedAt,,) = AggregatorInterface(feed).latestRoundData();
     if (answer != 0) revert IConditionalOrder.PollTryNextBlock(SEQUENCER_DOWN);
     if (startedAt == 0 || startedAt > block.timestamp) {
       revert IConditionalOrder.PollTryNextBlock(INVALID_SEQUENCER_TIMESTAMP);

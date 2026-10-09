@@ -6,7 +6,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {ERC1271Forwarder} from "src/finance/ERC1271Forwarder.sol";
-import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
+import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
 
 /**
  * @title SwapEscrow
