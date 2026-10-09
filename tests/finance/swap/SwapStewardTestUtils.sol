@@ -24,10 +24,8 @@ abstract contract SwapStewardTestUtils is Test {
   bytes32 internal constant APP_DATA = bytes32(0);
   uint256 internal constant BPS = 100_00;
   uint256 internal constant SWAP_SLIPPAGE = 50;
-  uint256 internal constant MAX_SLIPPAGE = 10_00;
   uint256 internal constant TWAP_NUM_PARTS = 4;
   uint256 internal constant TWAP_PART_DURATION = 1 hours;
-  uint256 internal constant TWAP_MAX_PART_DURATION = 365 days;
   uint32 internal constant SEQUENCER_GRACE_PERIOD = 1 hours;
   string internal constant GPV2_ORDER_FILLED = "GPv2: order filled";
   /// @dev GPv2Trade flags: bits 0-4 = 0 (sell, fill-or-kill, ERC20 sell and buy balances); bits 5-6 = signing

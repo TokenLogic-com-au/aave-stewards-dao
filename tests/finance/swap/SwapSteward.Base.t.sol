@@ -56,6 +56,8 @@ abstract contract SwapStewardTestBase is SwapStewardTestUtils {
   uint256 internal constant EXPECTED_OUT = 5e15;
   /// @dev `EXPECTED_OUT` less the 50 bps slippage of `SWAP_SLIPPAGE`: 0.005 WETH * 99.5%
   uint256 internal constant EXPECTED_BUY_AMOUNT = 4_975e12;
+  uint256 internal constant MAX_SLIPPAGE = 10_00;
+  uint256 internal constant TWAP_MAX_PART_DURATION = 365 days;
 
   address internal alice = makeAddr("alice");
   address internal otherToken;

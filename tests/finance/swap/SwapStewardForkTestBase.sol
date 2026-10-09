@@ -96,7 +96,7 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     assertEq(keccak256(abi.encode(params)), orderHash);
 
     (GPv2Order.Data memory order, bytes memory signature) =
-      composableCow.getTradeableOrderWithSignature(escrow, params, "", new bytes32[](0));
+      _getMarketOrderWithSignature(escrow, uint32(block.timestamp + 1 days));
 
     uint256 expectedBuyAmount = _expectedOut(swapAmount) * (BPS - SWAP_SLIPPAGE) / BPS;
 
