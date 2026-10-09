@@ -134,7 +134,7 @@ contract SwapStewardTwapSwapTest is SwapStewardTestBase {
     assertEq(steward.tokenBudget(fromToken), guardianBudget - total);
 
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, BEFORE_TWAP_START));
-    composableCow.getTradeableOrderWithSignature(escrow, params, "", new bytes32[](0));
+    _getTwapOrderWithSignature(escrow, data.t0);
   }
 
   function test_twapSwap_startTimeZero() public {

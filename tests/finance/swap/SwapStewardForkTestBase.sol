@@ -174,7 +174,7 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     assertEq(steward.tokenBudget(fromToken), guardianBudget - total);
 
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, BEFORE_TWAP_START));
-    composableCow.getTradeableOrderWithSignature(escrow, params, "", new bytes32[](0));
+    _getTwapOrderWithSignature(escrow, t0);
 
     vm.warp(t0);
     (GPv2Order.Data memory first, bytes memory firstSignature) = _getTwapOrderWithSignature(escrow, t0);
