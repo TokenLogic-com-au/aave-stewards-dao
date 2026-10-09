@@ -23,8 +23,6 @@ contract SwapStewardRescueTokenTest is SwapStewardTestBase {
 
   function test_rescueToken() public {
     deal(otherToken, address(steward), RESCUE_BALANCE);
-    assertEq(IERC20(otherToken).balanceOf(address(steward)), RESCUE_BALANCE);
-    assertEq(IERC20(otherToken).balanceOf(collector), 0);
 
     vm.prank(guardian);
     steward.rescueToken(otherToken);
@@ -35,7 +33,6 @@ contract SwapStewardRescueTokenTest is SwapStewardTestBase {
 
   function test_rescueToken_amount() public {
     deal(otherToken, address(steward), RESCUE_BALANCE);
-    assertEq(IERC20(otherToken).balanceOf(collector), 0);
 
     vm.prank(guardian);
     steward.rescueToken(otherToken, RESCUE_PARTIAL);

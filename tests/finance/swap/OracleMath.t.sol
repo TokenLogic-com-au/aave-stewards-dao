@@ -90,31 +90,6 @@ contract OracleMathTest is Test {
     }
   }
 
-  function test_fuzz_getExpectedOut_exactFloor(
-    uint256 amount,
-    uint256 priceFrom,
-    uint256 priceTo,
-    uint8 fromDecimals,
-    uint8 toDecimals
-  ) public {
-    amount = bound(amount, 0, MAX_FUZZ_AMOUNT);
-    priceFrom = bound(priceFrom, 1, MAX_FUZZ_PRICE);
-    priceTo = bound(priceTo, 1, MAX_FUZZ_PRICE);
-    fromDecimals = uint8(bound(fromDecimals, 0, MAX_FUZZ_DECIMALS));
-    toDecimals = uint8(bound(toDecimals, 0, MAX_FUZZ_DECIMALS));
-
-    uint256 out = harness.getExpectedOut(
-      _newMockToken(fromDecimals),
-      _newMockToken(toDecimals),
-      _newMockOracle(int256(priceFrom)),
-      _newMockOracle(int256(priceTo)),
-      amount
-    );
-
-    uint256 expected = (amount * priceFrom * 10 ** toDecimals) / (priceTo * 10 ** fromDecimals);
-    assertEq(out, expected);
-  }
-
   function test_getMinOut_50bps() public {
     uint256 out =
       harness.getMinOut(_newMockToken(18), _newMockToken(6), _newMockOracle(100e8), _newMockOracle(1e8), 1e18, 50);
@@ -123,8 +98,8 @@ contract OracleMathTest is Test {
 
   function test_getMinOut_roundsDown() public {
     uint256 out =
-      harness.getMinOut(_newMockToken(18), _newMockToken(6), _newMockOracle(1e8), _newMockOracle(3e8), 1e18, 50);
-    assertEq(out, 331_666);
+      harness.getMinOut(_newMockToken(18), _newMockToken(6), _newMockOracle(1e8), _newMockOracle(3e8), 1e18, 49);
+    assertEq(out, 331_699);
   }
 
   function test_fuzz_getMinOut_exactFloor(

@@ -5,7 +5,6 @@ pragma solidity ^0.8.0;
 // Subset of the external API: PayloadStruct, singleOrders, domainSeparator, create, remove, hash, isValidSafeSignature.
 
 import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
-import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
 
 interface IComposableCow {
   /// A struct to encapsulate order parameters / offchain input
@@ -48,20 +47,4 @@ interface IComposableCow {
     bytes calldata encodeData,
     bytes calldata payload
   ) external view returns (bytes4 magic);
-
-  /**
-   * Get the `GPv2Order.Data` and signature for submitting to CoW Protocol API
-   * @param owner of the order
-   * @param params `ConditionalOrderParams` for the order
-   * @param offchainInput any dynamic off-chain input for generating the discrete order
-   * @param proof if using merkle-roots that H(handler || salt || staticInput) is in the merkle tree
-   * @return order discrete order for submitting to CoW Protocol API
-   * @return signature for submitting to CoW Protocol API
-   */
-  function getTradeableOrderWithSignature(
-    address owner,
-    IConditionalOrder.ConditionalOrderParams calldata params,
-    bytes calldata offchainInput,
-    bytes32[] calldata proof
-  ) external view returns (GPv2Order.Data memory order, bytes memory signature);
 }

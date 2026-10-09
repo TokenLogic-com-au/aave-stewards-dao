@@ -17,8 +17,6 @@ contract SwapStewardForkMainnetTest is SwapStewardForkTestBase {
       fromOracle: AaveV3EthereumAssets.USDC_ORACLE,
       toToken: AaveV3EthereumAssets.WETH_UNDERLYING,
       toOracle: AaveV3EthereumAssets.WETH_ORACLE,
-      otherToken: AaveV3EthereumAssets.LINK_UNDERLYING,
-      otherOracle: AaveV3EthereumAssets.LINK_ORACLE,
       swapAmount: 10e6,
       guardianBudget: 50e6,
       twapPartAmount: 5e6,

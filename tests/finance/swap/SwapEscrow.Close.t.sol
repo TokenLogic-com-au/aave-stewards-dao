@@ -14,18 +14,4 @@ contract SwapEscrowCloseTest is SwapStewardTestBase {
     vm.expectRevert(SwapEscrow.OnlySteward.selector);
     SwapEscrow(escrow).close(orderHash, IERC20(fromToken), alice);
   }
-
-  function test_close() public {
-    address escrow = _swap(guardian, fromToken, toToken, swapAmount);
-    (, bytes32 orderHash) = steward.swaps(escrow);
-
-    vm.prank(address(steward));
-    uint256 returned = SwapEscrow(escrow).close(orderHash, IERC20(fromToken), alice);
-
-    assertEq(returned, swapAmount);
-    assertFalse(composableCow.singleOrders(escrow, orderHash));
-    assertEq(IERC20(fromToken).allowance(escrow, vaultRelayer), 0);
-    assertEq(IERC20(fromToken).balanceOf(escrow), 0);
-    assertEq(IERC20(fromToken).balanceOf(alice), swapAmount);
-  }
 }

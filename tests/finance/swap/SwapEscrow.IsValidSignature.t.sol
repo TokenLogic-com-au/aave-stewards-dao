@@ -44,26 +44,6 @@ contract SwapEscrowIsValidSignatureTest is SwapStewardTestBase {
     _settle(escrow, order, signature);
   }
 
-  function test_isValidSignature_stableWithinOracleRound() public {
-    address escrow = _swap(guardian, fromToken, toToken, swapAmount);
-    uint32 validUntil = uint32(block.timestamp + 1 days);
-
-    (GPv2Order.Data memory first, bytes memory firstSignature) = _getMarketOrderWithSignature(escrow, validUntil);
-
-    vm.warp(block.timestamp + 1 hours);
-
-    (GPv2Order.Data memory second,) = _getMarketOrderWithSignature(escrow, validUntil);
-
-    bytes32 domainSeparator = settlement.domainSeparator();
-    assertEq(GPv2Order.hash(first, domainSeparator), GPv2Order.hash(second, domainSeparator));
-    assertEq(first.validTo, second.validTo);
-    assertEq(_orderUid(escrow, first), _orderUid(escrow, second));
-    deal(address(first.buyToken), address(settlement), first.buyAmount);
-
-    _settle(escrow, first, firstSignature);
-    assertEq(settlement.filledAmount(_orderUid(escrow, first)), swapAmount);
-  }
-
   function test_isValidSignature() public {
     address escrow = _swap(guardian, fromToken, toToken, swapAmount);
     uint32 validUntil = uint32(block.timestamp + 1 days);

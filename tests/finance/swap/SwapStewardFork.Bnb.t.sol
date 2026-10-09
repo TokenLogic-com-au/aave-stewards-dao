@@ -17,8 +17,6 @@ contract SwapStewardForkBnbTest is SwapStewardForkTestBase {
       fromOracle: AaveV3BNBAssets.USDC_ORACLE,
       toToken: AaveV3BNBAssets.ETH_UNDERLYING,
       toOracle: AaveV3BNBAssets.ETH_ORACLE,
-      otherToken: AaveV3BNBAssets.BTCB_UNDERLYING,
-      otherOracle: AaveV3BNBAssets.BTCB_ORACLE,
       swapAmount: 10e18,
       guardianBudget: 50e18,
       twapPartAmount: 5e18,

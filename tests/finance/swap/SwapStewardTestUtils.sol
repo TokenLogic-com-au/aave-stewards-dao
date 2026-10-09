@@ -9,11 +9,10 @@ import {GPv2Trade} from "cowprotocol/contracts/libraries/GPv2Trade.sol";
 import {GPv2Interaction} from "cowprotocol/contracts/libraries/GPv2Interaction.sol";
 import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
 import {IERC20 as GPv2IERC20} from "cowprotocol/contracts/interfaces/IERC20.sol";
+import {ComposableCoW} from "composable-cow/ComposableCoW.sol";
 import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
 import {TWAPOrder} from "composable-cow/types/twap/libraries/TWAPOrder.sol";
-import {BEFORE_TWAP_START} from "composable-cow/types/twap/libraries/TWAPOrderMathLib.sol";
 import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
-import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
 import {OracleMarketOrder} from "src/finance/swap/OracleMarketOrder.sol";
 import {SwapSteward} from "src/finance/swap/SwapSteward.sol";
 
@@ -29,6 +28,7 @@ abstract contract SwapStewardTestUtils is Test {
   uint256 internal constant TWAP_NUM_PARTS = 4;
   uint256 internal constant TWAP_PART_DURATION = 1 hours;
   uint256 internal constant TWAP_MAX_PART_DURATION = 365 days;
+  uint32 internal constant SEQUENCER_GRACE_PERIOD = 1 hours;
   string internal constant GPV2_ORDER_FILLED = "GPv2: order filled";
   /// @dev GPv2Trade flags: bits 0-4 = 0 (sell, fill-or-kill, ERC20 sell and buy balances); bits 5-6 = signing
   /// scheme, where GPv2Signing.Scheme.Eip1271 = 2.
@@ -46,14 +46,12 @@ abstract contract SwapStewardTestUtils is Test {
   address internal fromOracle;
   address internal toToken;
   address internal toOracle;
-  address internal otherToken;
-  address internal otherOracle;
   uint256 internal swapAmount;
   uint256 internal guardianBudget;
   uint256 internal twapPartAmount;
   uint256 internal twapMinPartLimit;
 
-  IComposableCow internal composableCow;
+  ComposableCoW internal composableCow;
   address internal twapHandler;
   address internal vaultRelayer;
   GPv2Settlement internal settlement;
@@ -93,23 +91,19 @@ abstract contract SwapStewardTestUtils is Test {
     return vm.computeCreateAddress(address(steward), vm.getNonce(address(steward)));
   }
 
-  function _marketData(address sellToken, address buyToken, uint256 amount, uint32 validUntil)
-    internal
-    view
-    returns (OracleMarketOrder.Data memory)
-  {
+  function _marketData(uint256 amount, uint32 validUntil) internal view returns (OracleMarketOrder.Data memory) {
     return OracleMarketOrder.Data({
-      fromToken: sellToken,
-      toToken: buyToken,
-      fromOracle: steward.priceOracle(sellToken),
-      toOracle: steward.priceOracle(buyToken),
+      fromToken: fromToken,
+      toToken: toToken,
+      fromOracle: fromOracle,
+      toOracle: toOracle,
       receiver: collector,
       sellAmount: amount,
       slippage: SWAP_SLIPPAGE,
       appData: APP_DATA,
       validUntil: validUntil,
       sequencerUptimeFeed: sequencerUptimeFeed,
-      sequencerGracePeriod: steward.SEQUENCER_GRACE_PERIOD()
+      sequencerGracePeriod: SEQUENCER_GRACE_PERIOD
     });
   }
 
@@ -129,7 +123,7 @@ abstract contract SwapStewardTestUtils is Test {
     returns (GPv2Order.Data memory, bytes memory)
   {
     return composableCow.getTradeableOrderWithSignature(
-      owner, _marketParams(_marketData(fromToken, toToken, swapAmount, validUntil)), "", new bytes32[](0)
+      owner, _marketParams(_marketData(swapAmount, validUntil)), "", new bytes32[](0)
     );
   }
 
@@ -195,12 +189,12 @@ abstract contract SwapStewardTestUtils is Test {
   }
 
   /// @dev Orders of a TWAP are generated from its resolved start time `t0`
-  function _getTwapOrderWithSignature(address owner, uint256 t0, uint256 span)
+  function _getTwapOrderWithSignature(address owner, uint256 t0)
     internal
     view
     returns (GPv2Order.Data memory, bytes memory)
   {
-    return composableCow.getTradeableOrderWithSignature(owner, _twapParams(_twapData(t0, span)), "", new bytes32[](0));
+    return composableCow.getTradeableOrderWithSignature(owner, _twapParams(_twapData(t0, 0)), "", new bytes32[](0));
   }
 
   function _twapSwap(address caller, TWAPOrder.Data memory data) internal returns (address) {

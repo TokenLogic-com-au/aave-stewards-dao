@@ -5,13 +5,11 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
 import {ComposableCoW} from "composable-cow/ComposableCoW.sol";
-import {TWAP, NOT_WITHIN_SPAN} from "composable-cow/types/twap/TWAP.sol";
-import {AFTER_TWAP_FINISH} from "composable-cow/types/twap/libraries/TWAPOrderMathLib.sol";
+import {TWAP} from "composable-cow/types/twap/TWAP.sol";
 import {GPv2Settlement} from "cowprotocol/contracts/GPv2Settlement.sol";
 import {GPv2AllowListAuthentication} from "cowprotocol/contracts/GPv2AllowListAuthentication.sol";
 import {IVault} from "cowprotocol/contracts/interfaces/IVault.sol";
 import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
-import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
 import {MockAggregator} from "tests/finance/swap/OracleMocks.sol";
 import {SwapStewardTestUtils} from "tests/finance/swap/SwapStewardTestUtils.sol";
 
@@ -46,7 +44,6 @@ contract MockCollector is AccessControl {
  */
 abstract contract SwapStewardTestBase is SwapStewardTestUtils {
   uint256 internal constant ORACLE_MOVE_BPS = 100;
-  uint256 internal constant TWAP_SPAN = 30 minutes;
   uint256 internal constant START_TIME = 1_800_000_000;
   uint8 internal constant FROM_DECIMALS = 6;
   uint8 internal constant TO_DECIMALS = 18;
@@ -55,14 +52,14 @@ abstract contract SwapStewardTestBase is SwapStewardTestUtils {
   int256 internal constant TO_PRICE = 2000e8;
   int256 internal constant OTHER_PRICE = 10e8;
   uint256 internal constant COLLECTOR_BALANCE = 200e6;
-  /// @dev Wei of WETH per unit of USDC at the oracle prices: 1e8 * 1e18 / (2000e8 * 1e6)
-  uint256 internal constant OUT_PER_FROM_UNIT = 5e8;
   /// @dev `swapAmount` of USDC at the oracle prices: 10 USD / 2000 USD per WETH = 0.005 WETH
   uint256 internal constant EXPECTED_OUT = 5e15;
   /// @dev `EXPECTED_OUT` less the 50 bps slippage of `SWAP_SLIPPAGE`: 0.005 WETH * 99.5%
   uint256 internal constant EXPECTED_BUY_AMOUNT = 4_975e12;
 
   address internal alice = makeAddr("alice");
+  address internal otherToken;
+  address internal otherOracle;
 
   function setUp() public virtual {
     vm.warp(START_TIME);
@@ -85,9 +82,8 @@ abstract contract SwapStewardTestBase is SwapStewardTestUtils {
     settlement = new GPv2Settlement(authenticator, IVault(makeAddr("balancerVault")));
     vaultRelayer = address(settlement.vaultRelayer());
 
-    ComposableCoW cow = new ComposableCoW(address(settlement));
-    composableCow = IComposableCow(address(cow));
-    twapHandler = address(new TWAP(cow));
+    composableCow = new ComposableCoW(address(settlement));
+    twapHandler = address(new TWAP(composableCow));
 
     collector = address(new MockCollector(executor));
     deal(fromToken, collector, COLLECTOR_BALANCE);

@@ -104,7 +104,7 @@ contract OracleMarketOrderTest is Test {
     assertEq(order.buyTokenBalance, keccak256("erc20"));
   }
 
-  function test_getTradeableOrder_validToIsValidUntil() public {
+  function test_getTradeableOrder_notExpiredAtValidUntil() public {
     sequencerFeed.set(0, NOW - GRACE_PERIOD - 1);
     bytes memory input = _staticInput();
     vm.warp(VALID_UNTIL);

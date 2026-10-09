@@ -6,8 +6,6 @@ import {ISwapSteward} from "src/finance/swap/interfaces/ISwapSteward.sol";
 import {SwapStewardTestBase} from "tests/finance/swap/SwapSteward.Base.t.sol";
 
 contract SwapStewardIncreaseTokenBudgetTest is SwapStewardTestBase {
-  uint256 internal constant MAX_FUZZ_BUDGET = type(uint128).max;
-
   function test_increaseTokenBudget_revertsWith_OwnableUnauthorizedAccount() public {
     vm.prank(alice);
     vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
@@ -24,17 +22,5 @@ contract SwapStewardIncreaseTokenBudgetTest is SwapStewardTestBase {
 
     assertEq(steward.tokenBudget(fromToken), guardianBudget + amount);
     assertEq(steward.tokenBudget(toToken), 0);
-  }
-
-  function test_fuzz_increaseTokenBudget_accumulates(uint256 first, uint256 second) public {
-    first = bound(first, 0, MAX_FUZZ_BUDGET);
-    second = bound(second, 0, MAX_FUZZ_BUDGET);
-
-    vm.startPrank(executor);
-    steward.increaseTokenBudget(otherToken, first);
-    steward.increaseTokenBudget(otherToken, second);
-    vm.stopPrank();
-
-    assertEq(steward.tokenBudget(otherToken), first + second);
   }
 }

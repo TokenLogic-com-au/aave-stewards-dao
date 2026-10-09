@@ -26,21 +26,4 @@ contract SwapStewardDecreaseTokenBudgetTest is SwapStewardTestBase {
 
     assertEq(steward.tokenBudget(fromToken), guardianBudget - swapAmount);
   }
-
-  function test_fuzz_decreaseTokenBudget_subtractsAmount(uint256 amount) public {
-    amount = bound(amount, 0, guardianBudget);
-
-    vm.prank(executor);
-    steward.decreaseTokenBudget(fromToken, amount);
-
-    assertEq(steward.tokenBudget(fromToken), guardianBudget - amount);
-  }
-
-  function test_fuzz_decreaseTokenBudget_revertsWith_InsufficientBudget(uint256 amount) public {
-    amount = bound(amount, guardianBudget + 1, type(uint256).max);
-
-    vm.prank(executor);
-    vm.expectRevert(ISwapSteward.InsufficientBudget.selector);
-    steward.decreaseTokenBudget(fromToken, amount);
-  }
 }

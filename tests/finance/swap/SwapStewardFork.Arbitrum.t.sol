@@ -18,8 +18,6 @@ contract SwapStewardForkArbitrumTest is SwapStewardForkTestBase {
       fromOracle: AaveV3ArbitrumAssets.USDCn_ORACLE,
       toToken: AaveV3ArbitrumAssets.WETH_UNDERLYING,
       toOracle: AaveV3ArbitrumAssets.WETH_ORACLE,
-      otherToken: AaveV3ArbitrumAssets.ARB_UNDERLYING,
-      otherOracle: AaveV3ArbitrumAssets.ARB_ORACLE,
       swapAmount: 10e6,
       guardianBudget: 50e6,
       twapPartAmount: 5e6,

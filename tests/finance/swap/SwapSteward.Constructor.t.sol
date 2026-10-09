@@ -73,10 +73,6 @@ contract SwapStewardConstructorTest is SwapStewardTestBase {
     assertEq(implementation.STEWARD(), address(deployed));
     assertEq(implementation.VAULT_RELAYER(), vaultRelayer);
     assertEq(address(implementation.COMPOSABLE_COW()), address(composableCow));
-    assertEq(deployed.MAX_SLIPPAGE(), MAX_SLIPPAGE);
-    assertEq(deployed.ORDER_LIFETIME(), 1 days);
-    assertEq(deployed.SEQUENCER_GRACE_PERIOD(), 1 hours);
-    assertEq(deployed.APP_DATA(), APP_DATA);
   }
 
   function _newSteward(

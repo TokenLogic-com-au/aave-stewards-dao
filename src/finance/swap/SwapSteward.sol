@@ -3,7 +3,6 @@
 pragma solidity ^0.8.0;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
 import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
 import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
@@ -11,14 +10,15 @@ import {OwnableWithGuardian} from "solidity-utils/contracts/access-control/Ownab
 import {RescuableBase} from "solidity-utils/contracts/utils/RescuableBase.sol";
 
 import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
-
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
-import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
+
 import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
-import {OracleMarketOrder} from "src/finance/swap/OracleMarketOrder.sol";
-import {OracleMath} from "src/finance/swap/libraries/OracleMath.sol";
 import {TWAPOrder} from "composable-cow/types/twap/libraries/TWAPOrder.sol";
 import {IERC20 as GPv2IERC20} from "cowprotocol/contracts/interfaces/IERC20.sol";
+
+import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
+import {OracleMarketOrder} from "src/finance/swap/OracleMarketOrder.sol";
+import {OracleMath} from "src/finance/swap/libraries/OracleMath.sol";
 import {SwapEscrow} from "src/finance/swap/SwapEscrow.sol";
 import {ISwapSteward} from "src/finance/swap/interfaces/ISwapSteward.sol";
 
@@ -31,8 +31,6 @@ import {ISwapSteward} from "src/finance/swap/interfaces/ISwapSteward.sol";
  * which holds only that swap's sell tokens and relayer allowance.
  */
 contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableBase {
-  using SafeERC20 for IERC20;
-
   /// @inheritdoc ISwapSteward
   uint256 public constant MAX_SLIPPAGE = 10_00; // 10%
 
@@ -89,6 +87,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
       collector == address(0) || composableCow == address(0) || marketOrderHandler == address(0)
         || twapHandler == address(0) || vaultRelayer == address(0)
     ) revert InvalidZeroAddress();
+
     COLLECTOR = collector;
     COMPOSABLE_COW = IComposableCow(composableCow);
     SWAP_ESCROW_IMPLEMENTATION = address(new SwapEscrow(composableCow, vaultRelayer));
@@ -99,33 +98,11 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
 
   /// @inheritdoc ISwapSteward
   function swap(address fromToken, address toToken, uint256 amount, uint256 slippage) external onlyOwnerOrGuardian {
-    address fromOracle = priceOracle[fromToken];
-    address toOracle = priceOracle[toToken];
-    amount = _checkAmount(fromToken, amount);
+    amount = _resolveAmount(fromToken, amount);
+    (address fromOracle, address toOracle) = _validateSwap(fromToken, toToken, amount, slippage);
 
-    _validateSwap(fromToken, toToken, fromOracle, toOracle, amount, slippage);
-
-    IConditionalOrder.ConditionalOrderParams memory params = IConditionalOrder.ConditionalOrderParams(
-      IConditionalOrder(MARKET_ORDER_HANDLER),
-      bytes32(0),
-      abi.encode(
-        OracleMarketOrder.Data({
-          fromToken: fromToken,
-          toToken: toToken,
-          fromOracle: fromOracle,
-          toOracle: toOracle,
-          receiver: COLLECTOR,
-          sellAmount: amount,
-          slippage: slippage,
-          appData: APP_DATA,
-          validUntil: SafeCast.toUint32(block.timestamp + ORDER_LIFETIME),
-          sequencerUptimeFeed: SEQUENCER_UPTIME_FEED,
-          sequencerGracePeriod: SEQUENCER_GRACE_PERIOD
-        })
-      )
-    );
-
-    (address escrow, bytes32 orderHash) = _openSwap(fromToken, amount, params);
+    (address escrow, bytes32 orderHash) =
+      _openSwap(fromToken, amount, _marketOrder(fromToken, toToken, fromOracle, toOracle, amount, slippage));
 
     emit SwapRequested(escrow, orderHash, fromToken, toToken, fromOracle, toOracle, amount, slippage);
   }
@@ -142,28 +119,12 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     uint256 span
   ) external onlyOwnerOrGuardian {
     uint256 amount = partSellAmount * numParts;
-
-    _validateCommon(fromToken, toToken, amount);
-    if (startTime != 0 && startTime < block.timestamp) revert StartTimeInPast();
-
-    TWAPOrder.Data memory twap = TWAPOrder.Data({
-      sellToken: GPv2IERC20(fromToken),
-      buyToken: GPv2IERC20(toToken),
-      receiver: COLLECTOR,
-      partSellAmount: partSellAmount,
-      minPartLimit: minPartLimit,
-      t0: startTime == 0 ? block.timestamp : startTime,
-      n: numParts,
-      t: partDuration,
-      span: span,
-      appData: APP_DATA
-    });
-    TWAPOrder.validate(twap);
+    _validateTwap(fromToken, toToken, amount, startTime);
 
     (address escrow, bytes32 orderHash) = _openSwap(
       fromToken,
       amount,
-      IConditionalOrder.ConditionalOrderParams(IConditionalOrder(TWAP_HANDLER), bytes32(0), abi.encode(twap))
+      _twapOrder(fromToken, toToken, partSellAmount, minPartLimit, startTime, numParts, partDuration, span)
     );
 
     emit TWAPSwapRequested(escrow, orderHash, fromToken, toToken, amount);
@@ -202,14 +163,8 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   /// @inheritdoc ISwapSteward
   function setTokenOracle(address token, address oracle) external onlyOwner {
     if (oracle == address(0)) revert InvalidZeroAddress();
-
-    // Validate oracle has necessary functions
-    if (AggregatorInterface(oracle).decimals() != 8) {
-      revert PriceFeedIncompatibleDecimals();
-    }
-    if (AggregatorInterface(oracle).latestAnswer() <= 0) {
-      revert PriceFeedInvalidAnswer();
-    }
+    if (AggregatorInterface(oracle).decimals() != 8) revert PriceFeedIncompatibleDecimals();
+    _requirePositivePrice(oracle);
 
     priceOracle[token] = oracle;
 
@@ -226,44 +181,27 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     _emergencyTokenTransfer(token, COLLECTOR, amount);
   }
 
-  /// @inheritdoc ISwapSteward
-  function getExpectedOut(uint256 amount, address fromToken, address toToken) external view returns (uint256) {
-    address fromOracle = priceOracle[fromToken];
-    address toOracle = priceOracle[toToken];
-    if (fromOracle == address(0) || toOracle == address(0)) revert OracleNotSet();
-
-    return OracleMath.getExpectedOut(fromToken, toToken, fromOracle, toOracle, amount);
-  }
-
   /// @inheritdoc RescuableBase
   function maxRescue(address token) public view override(RescuableBase) returns (uint256) {
     return IERC20(token).balanceOf(address(this));
   }
 
-  /// @dev Internal function to check maximum amount
-  function _checkAmount(address fromToken, uint256 amount) internal view returns (uint256) {
-    if (amount == type(uint256).max) {
-      amount = msg.sender == owner() ? IERC20(fromToken).balanceOf(COLLECTOR) : tokenBudget[fromToken];
-    }
+  /// @inheritdoc ISwapSteward
+  function getExpectedOut(uint256 amount, address fromToken, address toToken) external view returns (uint256) {
+    (address fromOracle, address toOracle) = _getOracles(fromToken, toToken);
 
-    return amount;
+    return OracleMath.getExpectedOut(fromToken, toToken, fromOracle, toOracle, amount);
   }
 
-  function _transferTokensTo(address fromToken, address to, uint256 amount) internal {
-    ICollector(COLLECTOR).transfer(IERC20(fromToken), to, amount);
-  }
-
-  /// @dev Internal function to deploy the SwapEscrow clone of a swap, fund it from the Collector and open its order.
-  /// Guardian swaps consume the token budget
+  /// @dev Deploys the SwapEscrow clone of a swap, funds it from the Collector and opens its order.
+  /// Guardian swaps consume the token budget; owner swaps do not.
   function _openSwap(address fromToken, uint256 amount, IConditionalOrder.ConditionalOrderParams memory params)
     internal
     returns (address escrow, bytes32 orderHash)
   {
     escrow = Clones.clone(SWAP_ESCROW_IMPLEMENTATION);
-    _transferTokensTo(fromToken, escrow, amount);
-    if (msg.sender != owner()) {
-      _decreaseBudget(fromToken, amount);
-    }
+    ICollector(COLLECTOR).transfer(IERC20(fromToken), escrow, amount);
+    if (msg.sender != owner()) _decreaseBudget(fromToken, amount);
 
     orderHash = COMPOSABLE_COW.hash(params);
     swaps[escrow] = Swap({fromToken: fromToken, orderHash: orderHash});
@@ -271,45 +209,123 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     SwapEscrow(escrow).open(params, IERC20(fromToken), amount);
   }
 
-  /// @dev Internal function to validate a swap's parameters
-  function _validateSwap(
+  /// @dev Builds the conditional order params of an oracle-priced market order paying out to the Collector.
+  function _marketOrder(
     address fromToken,
     address toToken,
     address fromOracle,
     address toOracle,
     uint256 amount,
     uint256 slippage
-  ) internal view {
-    if (slippage > MAX_SLIPPAGE) revert InvalidSlippage();
+  ) internal view returns (IConditionalOrder.ConditionalOrderParams memory) {
+    OracleMarketOrder.Data memory order = OracleMarketOrder.Data({
+      fromToken: fromToken,
+      toToken: toToken,
+      fromOracle: fromOracle,
+      toOracle: toOracle,
+      receiver: COLLECTOR,
+      sellAmount: amount,
+      slippage: slippage,
+      appData: APP_DATA,
+      validUntil: SafeCast.toUint32(block.timestamp + ORDER_LIFETIME),
+      sequencerUptimeFeed: SEQUENCER_UPTIME_FEED,
+      sequencerGracePeriod: SEQUENCER_GRACE_PERIOD
+    });
 
+    return
+      IConditionalOrder.ConditionalOrderParams(IConditionalOrder(MARKET_ORDER_HANDLER), bytes32(0), abi.encode(order));
+  }
+
+  /// @dev Builds and validates the conditional order params of a TWAP order paying out to the Collector.
+  /// A zero `startTime` starts the TWAP at the current block.
+  function _twapOrder(
+    address fromToken,
+    address toToken,
+    uint256 partSellAmount,
+    uint256 minPartLimit,
+    uint256 startTime,
+    uint256 numParts,
+    uint256 partDuration,
+    uint256 span
+  ) internal view returns (IConditionalOrder.ConditionalOrderParams memory) {
+    TWAPOrder.Data memory order = TWAPOrder.Data({
+      sellToken: GPv2IERC20(fromToken),
+      buyToken: GPv2IERC20(toToken),
+      receiver: COLLECTOR,
+      partSellAmount: partSellAmount,
+      minPartLimit: minPartLimit,
+      t0: startTime == 0 ? block.timestamp : startTime,
+      n: numParts,
+      t: partDuration,
+      span: span,
+      appData: APP_DATA
+    });
+    TWAPOrder.validate(order);
+
+    return IConditionalOrder.ConditionalOrderParams(IConditionalOrder(TWAP_HANDLER), bytes32(0), abi.encode(order));
+  }
+
+  /// @dev Validates a market swap and returns the oracles that price it.
+  function _validateSwap(address fromToken, address toToken, uint256 amount, uint256 slippage)
+    internal
+    view
+    returns (address fromOracle, address toOracle)
+  {
+    if (slippage > MAX_SLIPPAGE) revert InvalidSlippage();
     _validateCommon(fromToken, toToken, amount);
 
-    if (fromOracle == address(0) || toOracle == address(0)) revert OracleNotSet();
-    if (AggregatorInterface(fromOracle).latestAnswer() <= 0 || AggregatorInterface(toOracle).latestAnswer() <= 0) {
-      revert PriceFeedInvalidAnswer();
-    }
+    (fromOracle, toOracle) = _getOracles(fromToken, toToken);
+    _requirePositivePrice(fromOracle);
+    _requirePositivePrice(toOracle);
   }
 
-  /// @dev Internal function to perform common validation of swaps
+  /// @dev Validates a TWAP swap. Part/timing checks are left to `TWAPOrder.validate`.
+  function _validateTwap(address fromToken, address toToken, uint256 amount, uint256 startTime) internal view {
+    _validateCommon(fromToken, toToken, amount);
+    if (startTime != 0 && startTime < block.timestamp) revert StartTimeInPast();
+  }
+
+  /// @dev Checks shared by every swap type: non-zero amount and an approved pair.
   function _validateCommon(address fromToken, address toToken, uint256 amount) internal view {
     if (amount == 0) revert InvalidZeroAmount();
-    if (!swapApprovedPair[fromToken][toToken]) {
-      revert UnrecognizedTokenSwap();
-    }
+    if (!swapApprovedPair[fromToken][toToken]) revert UnrecognizedTokenSwap();
   }
 
-  /// @dev Internal function to decrease token budget
-  function _decreaseBudget(address fromToken, uint256 amount) internal {
-    if (amount > tokenBudget[fromToken]) revert InsufficientBudget();
-    tokenBudget[fromToken] -= amount;
-
-    emit UpdatedTokenBudget(fromToken, tokenBudget[fromToken]);
+  /// @dev Returns the oracles of both tokens, reverting if either is not set.
+  function _getOracles(address fromToken, address toToken)
+    internal
+    view
+    returns (address fromOracle, address toOracle)
+  {
+    fromOracle = priceOracle[fromToken];
+    toOracle = priceOracle[toToken];
+    if (fromOracle == address(0) || toOracle == address(0)) revert OracleNotSet();
   }
 
-  /// @dev Internal function to increase token budget
-  function _increaseBudget(address fromToken, uint256 amount) internal {
-    tokenBudget[fromToken] += amount;
+  /// @dev Reverts unless the oracle reports a strictly positive price.
+  function _requirePositivePrice(address oracle) internal view {
+    if (AggregatorInterface(oracle).latestAnswer() <= 0) revert PriceFeedInvalidAnswer();
+  }
 
-    emit UpdatedTokenBudget(fromToken, tokenBudget[fromToken]);
+  /// @dev Resolves the `type(uint256).max` sentinel: the owner sells the Collector's full balance,
+  /// the guardian sells its full remaining budget. Any other amount is returned as is.
+  function _resolveAmount(address fromToken, uint256 amount) internal view returns (uint256) {
+    if (amount != type(uint256).max) return amount;
+    return msg.sender == owner() ? IERC20(fromToken).balanceOf(COLLECTOR) : tokenBudget[fromToken];
+  }
+
+  /// @dev Increases the guardian's budget for a token.
+  function _increaseBudget(address token, uint256 amount) internal {
+    tokenBudget[token] += amount;
+
+    emit UpdatedTokenBudget(token, tokenBudget[token]);
+  }
+
+  /// @dev Decreases the guardian's budget for a token, reverting if it would go negative.
+  function _decreaseBudget(address token, uint256 amount) internal {
+    if (amount > tokenBudget[token]) revert InsufficientBudget();
+    tokenBudget[token] -= amount;
+
+    emit UpdatedTokenBudget(token, tokenBudget[token]);
   }
 }
