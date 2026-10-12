@@ -3,7 +3,7 @@
 pragma solidity ^0.8.0;
 
 import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
-import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
+import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
 
 /**
  * @title ERC1271 Forwarder - An abstract contract that implements ERC1271 forwarding to ComposableCoW

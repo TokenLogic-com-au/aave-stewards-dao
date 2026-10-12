@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
+// Interface extracted from https://github.com/cowprotocol/composable-cow/blob/c0435953ac8312a606d66c91554f2bb4d22ec686/src/ComposableCoW.sol
+// composable-cow tag ack3-rev2.0 (file last changed in 9f0c6110ec2eb498341a0d45a0168e735a18ed1b).
+// Subset of the external API: PayloadStruct, singleOrders, domainSeparator, create, remove, hash, isValidSafeSignature.
 
-import {IConditionalOrder} from "./IConditionalOrder.sol";
+import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
 
 interface IComposableCow {
   /// A struct to encapsulate order parameters / offchain input

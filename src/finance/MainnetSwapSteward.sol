@@ -9,9 +9,9 @@ import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
 import {RescuableBase, IRescuableBase} from "solidity-utils/contracts/utils/RescuableBase.sol";
 
 import {ERC1271Forwarder} from "src/finance/ERC1271Forwarder.sol";
-import {IAggregatorInterface} from "src/finance/interfaces/IAggregatorInterface.sol";
+import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
-import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
+import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
 import {IMilkman} from "src/finance/interfaces/IMilkman.sol";
 import {IPriceChecker} from "src/finance/interfaces/IPriceChecker.sol";
 import {IMainnetSwapSteward} from "src/finance/interfaces/IMainnetSwapSteward.sol";
@@ -297,10 +297,10 @@ contract MainnetSwapSteward is IMainnetSwapSteward, OwnableWithGuardian, Multica
     if (oracle == address(0)) revert InvalidZeroAddress();
 
     // Validate oracle has necessary functions
-    if (IAggregatorInterface(oracle).decimals() != 8) {
+    if (AggregatorInterface(oracle).decimals() != 8) {
       revert PriceFeedIncompatibleDecimals();
     }
-    if (IAggregatorInterface(oracle).latestAnswer() <= 0) {
+    if (AggregatorInterface(oracle).latestAnswer() <= 0) {
       revert PriceFeedInvalidAnswer();
     }
 
@@ -490,7 +490,7 @@ contract MainnetSwapSteward is IMainnetSwapSteward, OwnableWithGuardian, Multica
 
     _validateCommon(fromToken, toToken, amount);
 
-    if (IAggregatorInterface(fromOracle).latestAnswer() == 0 || IAggregatorInterface(toOracle).latestAnswer() == 0) {
+    if (AggregatorInterface(fromOracle).latestAnswer() == 0 || AggregatorInterface(toOracle).latestAnswer() == 0) {
       revert PriceFeedInvalidAnswer();
     }
   }
