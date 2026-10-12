@@ -270,10 +270,10 @@ Every swap is a [Composable CoW](https://github.com/cowprotocol/composable-cow) 
 
 The owner is the DAO. The guardian acts without governance, within the limits the owner sets.
 
-- **Owner only.** Only the owner can call `increaseTokenBudget`, `decreaseTokenBudget`, `setSwappablePair` and `setTokenOracle`. The guardian cannot approve a pair, set an oracle or raise a budget.
+- **Owner only.** Only the owner can call `increaseGuardianTokenBudget`, `decreaseGuardianTokenBudget`, `setSwappablePair` and `setTokenOracle`. The guardian cannot approve a pair, set an oracle or raise a budget.
 - **Owner or guardian.** The owner or the guardian can call `swap`, `twapSwap`, `cancelSwap`, both `rescueToken` overloads and `updateGuardian`.
 - **Pairs.** `swap` and `twapSwap` revert with `UnrecognizedTokenSwap` unless the owner approved the ordered pair.
-- **Budget.** A guardian swap reduces `tokenBudget[fromToken]` by its full sell amount and reverts with `InsufficientBudget` if the budget is lower. An owner swap does not use the budget. With `amount = type(uint256).max`, `swap` sells the Collector's balance of `fromToken` when the owner calls it and the remaining budget when the guardian calls it.
+- **Budget.** A guardian swap reduces `guardianTokenBudget[fromToken]` by its full sell amount and reverts with `InsufficientBudget` if the budget is lower. An owner swap does not use the budget. With `amount = type(uint256).max`, `swap` sells the Collector's balance of `fromToken` when the owner calls it and the remaining budget when the guardian calls it.
 - **Slippage.** `swap` reverts with `InvalidSlippage` above `MAX_SLIPPAGE`.
 - **Receiver.** `COLLECTOR` is immutable. It receives the bought tokens of every order and the tokens returned by every cancel and rescue.
 - **Cancel.** `swaps` stores the sell token and the order hash of each open swap, not who opened it. Either role can cancel any open swap, including one the other role opened. A cancel does not restore budget. A guardian swap spends its amount from the budget whether it fills, expires or is cancelled.

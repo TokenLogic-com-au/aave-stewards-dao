@@ -36,7 +36,7 @@ contract MockSequencerFeed {
  * command: forge test -vvv --match-path tests/finance/swap/OracleMarketOrder.t.sol
  */
 contract OracleMarketOrderTest is Test {
-  uint32 internal constant GRACE_PERIOD = 1 hours;
+  uint256 internal constant GRACE_PERIOD = 1 hours;
   uint256 internal constant NOW = 1_000_000;
   uint32 internal constant VALID_UNTIL = uint32(NOW + 1 days);
   uint256 internal constant SELL_AMOUNT = 1e18;

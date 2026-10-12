@@ -57,7 +57,7 @@ abstract contract SwapStewardTestUtils is Test {
   OracleMarketOrder internal marketOrderHandler;
   SwapSteward internal steward;
   bytes32 internal appData;
-  uint32 internal sequencerGracePeriod;
+  uint256 internal sequencerGracePeriod;
 
   function _deploySteward() internal {
     marketOrderHandler = new OracleMarketOrder();
@@ -80,7 +80,7 @@ abstract contract SwapStewardTestUtils is Test {
     steward.setSwappablePair(fromToken, toToken, true);
     steward.setTokenOracle(fromToken, fromOracle);
     steward.setTokenOracle(toToken, toOracle);
-    steward.increaseTokenBudget(fromToken, guardianBudget);
+    steward.increaseGuardianTokenBudget(fromToken, guardianBudget);
     vm.stopPrank();
   }
 

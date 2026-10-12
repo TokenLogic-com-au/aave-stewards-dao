@@ -30,7 +30,7 @@ contract OracleMarketOrder is BaseConditionalOrder {
   /// @param toOracle Oracle pricing toToken
   /// @param receiver Receiver of the bought token, the Collector
   /// @param sellAmount Amount of fromToken to sell
-  /// @param slippage Allowed slippage against the oracle price, where 100_00 is equal to 100%
+  /// @param slippage Allowed slippage against the oracle price in BIPS, where 10_000 is equal to 100%
   /// @param appData appData pinned on the order
   /// @param validUntil Last timestamp at which the order can be settled, used as `validTo`
   /// @param sequencerUptimeFeed Chainlink L2 sequencer uptime feed, zero on chains without one
@@ -46,7 +46,7 @@ contract OracleMarketOrder is BaseConditionalOrder {
     bytes32 appData;
     uint32 validUntil;
     address sequencerUptimeFeed;
-    uint32 sequencerGracePeriod;
+    uint256 sequencerGracePeriod;
   }
 
   /// @inheritdoc BaseConditionalOrder
@@ -94,7 +94,7 @@ contract OracleMarketOrder is BaseConditionalOrder {
     });
   }
 
-  function _checkSequencer(address feed, uint32 gracePeriod) internal view {
+  function _checkSequencer(address feed, uint256 gracePeriod) internal view {
     (, int256 answer, uint256 startedAt,,) = AggregatorInterface(feed).latestRoundData();
     if (answer != 0) revert IConditionalOrder.PollTryNextBlock(SEQUENCER_DOWN);
     if (startedAt == 0 || startedAt > block.timestamp) {

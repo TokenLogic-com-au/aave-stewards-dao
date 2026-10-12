@@ -89,7 +89,7 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     assertEq(IERC20(fromToken).balanceOf(address(steward)), 0);
     assertEq(IERC20(fromToken).balanceOf(collector), collectorBalanceBefore - swapAmount);
     assertEq(IERC20(fromToken).allowance(escrow, vaultRelayer), swapAmount);
-    assertEq(steward.tokenBudget(fromToken), guardianBudget - swapAmount);
+    assertEq(steward.guardianTokenBudget(fromToken), guardianBudget - swapAmount);
 
     assertEq(keccak256(abi.encode(params)), orderHash);
 
@@ -170,7 +170,7 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     assertEq(IERC20(fromToken).balanceOf(address(steward)), 0);
     assertEq(IERC20(fromToken).balanceOf(collector), collectorBalanceBefore - total);
     assertEq(IERC20(fromToken).allowance(escrow, vaultRelayer), total);
-    assertEq(steward.tokenBudget(fromToken), guardianBudget - total);
+    assertEq(steward.guardianTokenBudget(fromToken), guardianBudget - total);
 
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, BEFORE_TWAP_START));
     _getTwapOrderWithSignature(escrow, t0);

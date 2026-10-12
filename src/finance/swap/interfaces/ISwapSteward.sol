@@ -54,7 +54,7 @@ interface ISwapSteward {
   /// @notice Emitted when a token's budget is updated
   /// @param token The address of the token
   /// @param budget The budget set for the token
-  event UpdatedTokenBudget(address indexed token, uint256 budget);
+  event UpdatedGuardianTokenBudget(address indexed token, uint256 budget);
 
   /// @notice Emitted when an oracle market swap is requested
   /// @param escrow The SwapEscrow clone that owns the swap
@@ -64,7 +64,7 @@ interface ISwapSteward {
   /// @param fromOracle The oracle used to price fromToken
   /// @param toOracle The oracle used to price toToken
   /// @param amount The amount of fromToken to swap
-  /// @param slippage The maximum allowed slippage for the swap
+  /// @param slippage The maximum allowed slippage in BIPS, where 10_000 is equal to 100%
   event SwapRequested(
     address indexed escrow,
     bytes32 orderHash,
@@ -115,10 +115,10 @@ interface ISwapSteward {
   function SEQUENCER_UPTIME_FEED() external view returns (address);
 
   /// @notice Returns the lifetime in seconds of an oracle market order, after which it cannot be settled
-  function ORDER_LIFETIME() external view returns (uint32);
+  function ORDER_LIFETIME() external view returns (uint256);
 
   /// @notice Returns the seconds the sequencer must be up before oracle market orders are generated
-  function SEQUENCER_GRACE_PERIOD() external view returns (uint32);
+  function SEQUENCER_GRACE_PERIOD() external view returns (uint256);
 
   /// @notice Returns the appData pinned on every order
   function APP_DATA() external view returns (bytes32);
@@ -137,7 +137,7 @@ interface ISwapSteward {
 
   /// @notice Returns the budget remaining for a given token
   /// @param token The address of the token to query the budget for
-  function tokenBudget(address token) external view returns (uint256);
+  function guardianTokenBudget(address token) external view returns (uint256);
 
   /// @notice Returns the open swap owned by a SwapEscrow clone, or zero values if there is none
   /// @param escrow Address of the SwapEscrow clone
@@ -149,7 +149,7 @@ interface ISwapSteward {
   /// @param toToken The address of the token to buy
   /// @param amount The amount of the sell token to swap. `type(uint256).max` resolves to the Collector balance of
   ///        the sell token when called by the owner, and to the remaining token budget when called by the guardian
-  /// @param slippage The slippage allowed in the swap (in BPS)
+  /// @param slippage Allowed slippage against the oracle price in BIPS, where 10_000 is equal to 100%
   function swap(address fromToken, address toToken, uint256 amount, uint256 slippage) external;
 
   /// @notice Swaps a specified total amount of a sell token for a buy token in equal parts over time
@@ -189,12 +189,12 @@ interface ISwapSteward {
   /// @notice Increases the budget of a token
   /// @param token The address of the token
   /// @param budget The amount to add to the budget
-  function increaseTokenBudget(address token, uint256 budget) external;
+  function increaseGuardianTokenBudget(address token, uint256 budget) external;
 
   /// @notice Decreases the budget of a token
   /// @param token The address of the token
   /// @param budget The amount to remove from the budget
-  function decreaseTokenBudget(address token, uint256 budget) external;
+  function decreaseGuardianTokenBudget(address token, uint256 budget) external;
 
   /// @notice Allows or disallows a token pair for swapping
   /// @param fromToken The address of the token to swap from

@@ -131,7 +131,7 @@ contract SwapStewardTwapSwapTest is SwapStewardTestBase {
     assertEq(IERC20(fromToken).balanceOf(address(steward)), 0);
     assertEq(IERC20(fromToken).balanceOf(collector), COLLECTOR_BALANCE - total);
     assertEq(IERC20(fromToken).allowance(escrow, vaultRelayer), total);
-    assertEq(steward.tokenBudget(fromToken), guardianBudget - total);
+    assertEq(steward.guardianTokenBudget(fromToken), guardianBudget - total);
 
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, BEFORE_TWAP_START));
     _getTwapOrderWithSignature(escrow, data.t0);
@@ -163,7 +163,7 @@ contract SwapStewardTwapSwapTest is SwapStewardTestBase {
 
     address escrow = _twapSwap(executor, data);
 
-    assertEq(steward.tokenBudget(fromToken), guardianBudget);
+    assertEq(steward.guardianTokenBudget(fromToken), guardianBudget);
     assertEq(IERC20(fromToken).balanceOf(escrow), total);
   }
 

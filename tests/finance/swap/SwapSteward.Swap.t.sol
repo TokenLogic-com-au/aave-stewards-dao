@@ -102,7 +102,7 @@ contract SwapStewardSwapTest is SwapStewardTestBase {
 
     address escrow = _swap(executor, fromToken, toToken, amount);
 
-    assertEq(steward.tokenBudget(fromToken), guardianBudget);
+    assertEq(steward.guardianTokenBudget(fromToken), guardianBudget);
     assertEq(IERC20(fromToken).balanceOf(escrow), amount);
     assertEq(IERC20(fromToken).balanceOf(collector), COLLECTOR_BALANCE - amount);
   }
@@ -114,7 +114,7 @@ contract SwapStewardSwapTest is SwapStewardTestBase {
 
     assertEq(IERC20(fromToken).balanceOf(escrow), guardianBudget);
     assertEq(IERC20(fromToken).balanceOf(collector), COLLECTOR_BALANCE - guardianBudget);
-    assertEq(steward.tokenBudget(fromToken), 0);
+    assertEq(steward.guardianTokenBudget(fromToken), 0);
     (, bytes32 orderHash) = steward.swaps(escrow);
     assertEq(orderHash, keccak256(abi.encode(_marketParams(_marketData(guardianBudget, validUntil)))));
   }
@@ -126,7 +126,7 @@ contract SwapStewardSwapTest is SwapStewardTestBase {
 
     assertEq(IERC20(fromToken).balanceOf(escrow), COLLECTOR_BALANCE);
     assertEq(IERC20(fromToken).balanceOf(collector), 0);
-    assertEq(steward.tokenBudget(fromToken), guardianBudget);
+    assertEq(steward.guardianTokenBudget(fromToken), guardianBudget);
     (, bytes32 orderHash) = steward.swaps(escrow);
     assertEq(orderHash, keccak256(abi.encode(_marketParams(_marketData(COLLECTOR_BALANCE, validUntil)))));
   }
@@ -151,6 +151,6 @@ contract SwapStewardSwapTest is SwapStewardTestBase {
     assertEq(IERC20(fromToken).balanceOf(address(steward)), 0);
     assertEq(IERC20(fromToken).balanceOf(collector), COLLECTOR_BALANCE - swapAmount);
     assertEq(IERC20(fromToken).allowance(escrow, vaultRelayer), swapAmount);
-    assertEq(steward.tokenBudget(fromToken), guardianBudget - swapAmount);
+    assertEq(steward.guardianTokenBudget(fromToken), guardianBudget - swapAmount);
   }
 }

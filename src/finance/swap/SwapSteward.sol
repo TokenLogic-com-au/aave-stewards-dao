@@ -35,10 +35,10 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   uint256 public constant MAX_SLIPPAGE = 10_00; // 10%
 
   /// @inheritdoc ISwapSteward
-  uint32 public constant ORDER_LIFETIME = 1 days;
+  uint256 public constant ORDER_LIFETIME = 1 days;
 
   /// @inheritdoc ISwapSteward
-  uint32 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
+  uint256 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
 
   /// @inheritdoc ISwapSteward
   bytes32 public constant APP_DATA = bytes32(0);
@@ -71,7 +71,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   mapping(address token => address oracle) public priceOracle;
 
   /// @inheritdoc ISwapSteward
-  mapping(address token => uint256 budget) public tokenBudget;
+  mapping(address token => uint256 budget) public guardianTokenBudget;
 
   /// @inheritdoc ISwapSteward
   mapping(address escrow => Swap swap) public swaps;
@@ -145,12 +145,12 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   }
 
   /// @inheritdoc ISwapSteward
-  function increaseTokenBudget(address token, uint256 budget) external onlyOwner {
+  function increaseGuardianTokenBudget(address token, uint256 budget) external onlyOwner {
     _increaseBudget(token, budget);
   }
 
   /// @inheritdoc ISwapSteward
-  function decreaseTokenBudget(address token, uint256 budget) external onlyOwner {
+  function decreaseGuardianTokenBudget(address token, uint256 budget) external onlyOwner {
     _decreaseBudget(token, budget);
   }
 
@@ -315,21 +315,21 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   /// the guardian sells its full remaining budget. Any other amount is returned as is.
   function _resolveAmount(address fromToken, uint256 amount) internal view returns (uint256) {
     if (amount != type(uint256).max) return amount;
-    return msg.sender == owner() ? IERC20(fromToken).balanceOf(COLLECTOR) : tokenBudget[fromToken];
+    return msg.sender == owner() ? IERC20(fromToken).balanceOf(COLLECTOR) : guardianTokenBudget[fromToken];
   }
 
   /// @dev Increases the guardian's budget for a token.
   function _increaseBudget(address token, uint256 amount) internal {
-    tokenBudget[token] += amount;
+    guardianTokenBudget[token] += amount;
 
-    emit UpdatedTokenBudget(token, tokenBudget[token]);
+    emit UpdatedGuardianTokenBudget(token, guardianTokenBudget[token]);
   }
 
   /// @dev Decreases the guardian's budget for a token, reverting if it would go negative.
   function _decreaseBudget(address token, uint256 amount) internal {
-    if (amount > tokenBudget[token]) revert InsufficientBudget();
-    tokenBudget[token] -= amount;
+    if (amount > guardianTokenBudget[token]) revert InsufficientBudget();
+    guardianTokenBudget[token] -= amount;
 
-    emit UpdatedTokenBudget(token, tokenBudget[token]);
+    emit UpdatedGuardianTokenBudget(token, guardianTokenBudget[token]);
   }
 }

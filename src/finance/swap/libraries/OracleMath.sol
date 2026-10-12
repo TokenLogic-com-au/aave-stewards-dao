@@ -3,7 +3,6 @@
 pragma solidity ^0.8.0;
 
 import {Math} from "openzeppelin-contracts/contracts/utils/math/Math.sol";
-import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {PercentageMath} from "aave-v3-origin/contracts/protocol/libraries/math/PercentageMath.sol";
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
@@ -50,7 +49,7 @@ library OracleMath {
    * @param fromOracle Oracle pricing fromToken
    * @param toOracle Oracle pricing toToken
    * @param amount Amount of fromToken, in fromToken decimals
-   * @param slippage Allowed slippage against the oracle price, where 100_00 is equal to 100%
+   * @param slippage Allowed slippage against the oracle price in BIPS, where 10_000 is equal to 100%
    * @return Minimum amount of toToken, in toToken decimals
    */
   function getMinOut(
@@ -70,6 +69,6 @@ library OracleMath {
     int256 answer = AggregatorInterface(oracle).latestAnswer();
     if (answer <= 0) revert InvalidPrice(oracle);
 
-    return SafeCast.toUint256(answer);
+    return uint256(answer);
   }
 }

@@ -40,7 +40,7 @@ contract SwapStewardCancelSwapTest is SwapStewardTestBase {
     assertEq(IERC20(fromToken).allowance(escrow, vaultRelayer), 0);
     assertEq(IERC20(fromToken).balanceOf(escrow), 0);
     assertEq(IERC20(fromToken).balanceOf(collector), COLLECTOR_BALANCE + DONATION);
-    assertEq(steward.tokenBudget(fromToken), guardianBudget - swapAmount);
+    assertEq(steward.guardianTokenBudget(fromToken), guardianBudget - swapAmount);
 
     vm.prank(guardian);
     vm.expectRevert(ISwapSteward.SwapNotFound.selector);
