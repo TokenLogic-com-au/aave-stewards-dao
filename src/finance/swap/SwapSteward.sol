@@ -155,23 +155,43 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   }
 
   /// @inheritdoc ISwapSteward
-  function setSwappablePair(address fromToken, address toToken, bool allowed) external onlyOwner {
+  function setSwappablePair(address fromToken, address toToken) external onlyOwner {
     if (fromToken == toToken) revert UnrecognizedTokenSwap();
+    if (swapApprovedPair[fromToken][toToken]) revert SwappablePairAlreadySet();
 
-    swapApprovedPair[fromToken][toToken] = allowed;
+    swapApprovedPair[fromToken][toToken] = true;
 
-    emit SetSwappablePair(fromToken, toToken, allowed);
+    emit SetSwappablePair(fromToken, toToken);
+  }
+
+  /// @inheritdoc ISwapSteward
+  function removeSwappablePair(address fromToken, address toToken) external onlyOwner {
+    if (!swapApprovedPair[fromToken][toToken]) revert UnrecognizedTokenSwap();
+
+    delete swapApprovedPair[fromToken][toToken];
+
+    emit SwappablePairRemoved(fromToken, toToken);
   }
 
   /// @inheritdoc ISwapSteward
   function setTokenOracle(address token, address oracle) external onlyOwner {
     if (oracle == address(0)) revert InvalidZeroAddress();
+    if (priceOracle[token] != address(0)) revert OracleAlreadySet();
     if (AggregatorInterface(oracle).decimals() != ORACLE_DECIMALS) revert PriceFeedIncompatibleDecimals();
-    _requirePositivePrice(oracle);
+    _validatePositivePrice(oracle);
 
     priceOracle[token] = oracle;
 
     emit SetTokenOracle(token, oracle);
+  }
+
+  /// @inheritdoc ISwapSteward
+  function removeTokenOracle(address token) external onlyOwner {
+    if (priceOracle[token] == address(0)) revert OracleNotSet();
+
+    delete priceOracle[token];
+
+    emit TokenOracleRemoved(token);
   }
 
   /// @inheritdoc ISwapSteward
@@ -230,7 +250,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
       sellAmount: amount,
       slippage: slippage,
       appData: APP_DATA,
-      validUntil: SafeCast.toUint32(block.timestamp + ORDER_LIFETIME),
+      validTo: SafeCast.toUint32(block.timestamp + ORDER_LIFETIME),
       sequencerUptimeFeed: SEQUENCER_UPTIME_FEED,
       sequencerGracePeriod: SEQUENCER_GRACE_PERIOD
     });
@@ -278,8 +298,8 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     _validateCommon(fromToken, toToken, amount);
 
     (fromOracle, toOracle) = _getOracles(fromToken, toToken);
-    _requirePositivePrice(fromOracle);
-    _requirePositivePrice(toOracle);
+    _validatePositivePrice(fromOracle);
+    _validatePositivePrice(toOracle);
   }
 
   /// @dev Validates a TWAP swap: amount, pair, and that a non-zero start time is not in the past.
@@ -307,7 +327,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   }
 
   /// @dev Reverts unless the oracle reports a strictly positive price.
-  function _requirePositivePrice(address oracle) internal view {
+  function _validatePositivePrice(address oracle) internal view {
     if (AggregatorInterface(oracle).latestAnswer() <= 0) revert PriceFeedInvalidAnswer();
   }
 

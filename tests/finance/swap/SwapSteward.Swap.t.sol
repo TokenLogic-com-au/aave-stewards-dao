@@ -108,7 +108,7 @@ contract SwapStewardSwapTest is SwapStewardTestBase {
   }
 
   function test_swap_maxAmount_guardian() public {
-    uint32 validUntil = uint32(block.timestamp + steward.ORDER_LIFETIME());
+    uint32 validTo = uint32(block.timestamp + steward.ORDER_LIFETIME());
 
     address escrow = _swap(guardian, fromToken, toToken, type(uint256).max);
 
@@ -116,11 +116,11 @@ contract SwapStewardSwapTest is SwapStewardTestBase {
     assertEq(IERC20(fromToken).balanceOf(collector), COLLECTOR_BALANCE - guardianBudget);
     assertEq(steward.guardianTokenBudget(fromToken), 0);
     (, bytes32 orderHash) = steward.swaps(escrow);
-    assertEq(orderHash, keccak256(abi.encode(_marketParams(_marketData(guardianBudget, validUntil)))));
+    assertEq(orderHash, keccak256(abi.encode(_marketParams(_marketData(guardianBudget, validTo)))));
   }
 
   function test_swap_maxAmount_owner() public {
-    uint32 validUntil = uint32(block.timestamp + steward.ORDER_LIFETIME());
+    uint32 validTo = uint32(block.timestamp + steward.ORDER_LIFETIME());
 
     address escrow = _swap(executor, fromToken, toToken, type(uint256).max);
 
@@ -128,7 +128,7 @@ contract SwapStewardSwapTest is SwapStewardTestBase {
     assertEq(IERC20(fromToken).balanceOf(collector), 0);
     assertEq(steward.guardianTokenBudget(fromToken), guardianBudget);
     (, bytes32 orderHash) = steward.swaps(escrow);
-    assertEq(orderHash, keccak256(abi.encode(_marketParams(_marketData(COLLECTOR_BALANCE, validUntil)))));
+    assertEq(orderHash, keccak256(abi.encode(_marketParams(_marketData(COLLECTOR_BALANCE, validTo)))));
   }
 
   function test_swap() public {

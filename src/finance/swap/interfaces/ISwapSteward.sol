@@ -10,46 +10,24 @@ interface ISwapSteward {
     bytes32 orderHash;
   }
 
-  /// @dev Slippage is too high
-  error InvalidSlippage();
-
-  /// @dev Provided address cannot be the zero-address
-  error InvalidZeroAddress();
-
-  /// @dev Amount cannot be zero
-  error InvalidZeroAmount();
-
-  /// @dev Amount requested is greater than token budget
-  error InsufficientBudget();
-
-  /// @dev Oracle has not been set for the token
-  error OracleNotSet();
-
-  /// @dev Oracle does not have correct number of decimals
-  error PriceFeedIncompatibleDecimals();
-
-  /// @dev Oracle is returning unexpected value
-  error PriceFeedInvalidAnswer();
-
-  /// @dev Start time of the TWAP is in the past
-  error StartTimeInPast();
-
-  /// @dev There is no open swap owned by the escrow
-  error SwapNotFound();
-
-  /// @dev Token pair is not approved for swapping, or both tokens are the same
-  error UnrecognizedTokenSwap();
-
-  /// @notice Emitted when a token pair is allowed or disallowed for swapping
+  /// @notice Emitted when a token pair is allowed for swapping
   /// @param fromToken The address of the token to swap from
   /// @param toToken The address of the token to swap to
-  /// @param allowed Whether token pair is allowed or disallowed
-  event SetSwappablePair(address indexed fromToken, address indexed toToken, bool allowed);
+  event SetSwappablePair(address indexed fromToken, address indexed toToken);
+
+  /// @notice Emitted when a token pair is removed from the swappable pairs
+  /// @param fromToken The address of the token to swap from
+  /// @param toToken The address of the token to swap to
+  event SwappablePairRemoved(address indexed fromToken, address indexed toToken);
 
   /// @notice Emitted when an oracle address is set for a given token
   /// @param token The address of the token
   /// @param oracle The address of the token oracle
   event SetTokenOracle(address indexed token, address indexed oracle);
+
+  /// @notice Emitted when the oracle of a token is removed
+  /// @param token The address of the token
+  event TokenOracleRemoved(address indexed token);
 
   /// @notice Emitted when a token's budget is updated
   /// @param token The address of the token
@@ -93,55 +71,41 @@ interface ISwapSteward {
   /// @param amount The amount of fromToken returned to the Collector
   event SwapCanceled(address indexed escrow, bytes32 orderHash, address indexed fromToken, uint256 amount);
 
-  /// @notice Returns address of Aave V3 Collector, the receiver of every swap and refund
-  function COLLECTOR() external view returns (address);
+  /// @dev Slippage is too high
+  error InvalidSlippage();
 
-  /// @notice Returns the maximum allowed slippage for swaps (in BPS)
-  function MAX_SLIPPAGE() external view returns (uint256);
+  /// @dev Provided address cannot be the zero-address
+  error InvalidZeroAddress();
 
-  /// @notice Returns the handler of oracle market orders
-  function MARKET_ORDER_HANDLER() external view returns (address);
+  /// @dev Amount cannot be zero
+  error InvalidZeroAmount();
 
-  /// @notice Returns the handler of TWAP orders
-  function TWAP_HANDLER() external view returns (address);
+  /// @dev Amount requested is greater than token budget
+  error InsufficientBudget();
 
-  /// @notice Returns the ComposableCoW contract
-  function COMPOSABLE_COW() external view returns (IComposableCow);
+  /// @dev Oracle is already set for the token
+  error OracleAlreadySet();
 
-  /// @notice Returns the SwapEscrow implementation that every swap clones
-  function SWAP_ESCROW_IMPLEMENTATION() external view returns (address);
+  /// @dev Oracle has not been set for the token
+  error OracleNotSet();
 
-  /// @notice Returns the Chainlink L2 sequencer uptime feed, zero on chains without one
-  function SEQUENCER_UPTIME_FEED() external view returns (address);
+  /// @dev Oracle does not have correct number of decimals
+  error PriceFeedIncompatibleDecimals();
 
-  /// @notice Returns the lifetime in seconds of an oracle market order, after which it cannot be settled
-  function ORDER_LIFETIME() external view returns (uint256);
+  /// @dev Oracle is returning unexpected value
+  error PriceFeedInvalidAnswer();
 
-  /// @notice Returns the seconds the sequencer must be up before oracle market orders are generated
-  function SEQUENCER_GRACE_PERIOD() external view returns (uint256);
+  /// @dev Start time of the TWAP is in the past
+  error StartTimeInPast();
 
-  /// @notice Returns the appData pinned on every order
-  function APP_DATA() external view returns (bytes32);
+  /// @dev There is no open swap owned by the escrow
+  error SwapNotFound();
 
-  /// @notice Returns the number of decimals every token oracle must report
-  function ORACLE_DECIMALS() external view returns (uint8);
+  /// @dev Token pair is already approved
+  error SwappablePairAlreadySet();
 
-  /// @notice Returns whether the path from fromToken to toToken is approved for swapping
-  /// @param fromToken Address of the token to swap from
-  /// @param toToken Address of the token to swap to
-  function swapApprovedPair(address fromToken, address toToken) external view returns (bool);
-
-  /// @notice Returns address of the Oracle to use for token swaps
-  /// @param token Address of the token to swap
-  function priceOracle(address token) external view returns (address);
-
-  /// @notice Returns the budget remaining for a given token
-  /// @param token The address of the token to query the budget for
-  function guardianTokenBudget(address token) external view returns (uint256);
-
-  /// @notice Returns the open swap owned by a SwapEscrow clone, or zero values if there is none
-  /// @param escrow Address of the SwapEscrow clone
-  function swaps(address escrow) external view returns (address fromToken, bytes32 orderHash);
+  /// @dev Token pair is not approved for swapping, or both tokens are the same
+  error UnrecognizedTokenSwap();
 
   /// @notice Swaps a specified amount of a sell token for a buy token at the oracle price, minus slippage
   /// @dev Deploys a SwapEscrow clone that owns the order. Guardian swaps consume the token budget
@@ -196,17 +160,33 @@ interface ISwapSteward {
   /// @param budget The amount to remove from the budget
   function decreaseGuardianTokenBudget(address token, uint256 budget) external;
 
-  /// @notice Allows or disallows a token pair for swapping
+  /// @notice Allows a token pair for swapping
+  /// @dev Reverts with `UnrecognizedTokenSwap` when `fromToken` equals `toToken` and with `SwappablePairAlreadySet`
+  /// when the pair is already approved
   /// @param fromToken The address of the token to swap from
   /// @param toToken The address of the token to swap to
-  /// @param allowed Whether the pair is allowed
-  function setSwappablePair(address fromToken, address toToken, bool allowed) external;
+  function setSwappablePair(address fromToken, address toToken) external;
+
+  /// @notice Removes a token pair from the swappable pairs
+  /// @dev Reverts with `UnrecognizedTokenSwap` when the pair is not approved, which includes `fromToken` equal to
+  /// `toToken`. Removing a pair does not affect open orders, because the pair is checked only when a swap is created.
+  /// @param fromToken The address of the token to swap from
+  /// @param toToken The address of the token to swap to
+  function removeSwappablePair(address fromToken, address toToken) external;
 
   /// @notice Sets the oracle of a token
-  /// @dev The oracle must have 8 decimals and return a positive `latestAnswer`
+  /// @dev Reverts with `InvalidZeroAddress` for `address(0)` and with `OracleAlreadySet` when the token has an oracle,
+  /// so remove it first to replace it. The oracle must have 8 decimals (`PriceFeedIncompatibleDecimals`) and return a
+  /// positive `latestAnswer` (`PriceFeedInvalidAnswer`).
   /// @param token The address of the token
   /// @param oracle The address of the oracle
   function setTokenOracle(address token, address oracle) external;
+
+  /// @notice Removes the oracle of a token
+  /// @dev Reverts with `OracleNotSet` when the token has no oracle. Removing an oracle does not affect open orders,
+  /// because each order stores its oracles at creation.
+  /// @param token The address of the token
+  function removeTokenOracle(address token) external;
 
   /// @notice Transfers the full balance of a token held by this contract to the Collector
   /// @param token The address of the token to rescue
@@ -216,6 +196,56 @@ interface ISwapSteward {
   /// @param token The address of the token to rescue
   /// @param amount The amount to rescue. If the balance is lower, the whole balance is transferred
   function rescueToken(address token, uint256 amount) external;
+
+  /// @notice Returns address of Aave V3 Collector, the receiver of every swap and refund
+  function COLLECTOR() external view returns (address);
+
+  /// @notice Returns the maximum allowed slippage for swaps (in BPS)
+  function MAX_SLIPPAGE() external view returns (uint256);
+
+  /// @notice Returns the handler of oracle market orders
+  function MARKET_ORDER_HANDLER() external view returns (address);
+
+  /// @notice Returns the handler of TWAP orders
+  function TWAP_HANDLER() external view returns (address);
+
+  /// @notice Returns the ComposableCoW contract
+  function COMPOSABLE_COW() external view returns (IComposableCow);
+
+  /// @notice Returns the SwapEscrow implementation that every swap clones
+  function SWAP_ESCROW_IMPLEMENTATION() external view returns (address);
+
+  /// @notice Returns the Chainlink L2 sequencer uptime feed, zero on chains without one
+  function SEQUENCER_UPTIME_FEED() external view returns (address);
+
+  /// @notice Returns the lifetime in seconds of an oracle market order, after which it cannot be settled
+  function ORDER_LIFETIME() external view returns (uint256);
+
+  /// @notice Returns the seconds the sequencer must be up before oracle market orders are generated
+  function SEQUENCER_GRACE_PERIOD() external view returns (uint256);
+
+  /// @notice Returns the appData pinned on every order
+  function APP_DATA() external view returns (bytes32);
+
+  /// @notice Returns the number of decimals every token oracle must report
+  function ORACLE_DECIMALS() external view returns (uint8);
+
+  /// @notice Returns whether the path from fromToken to toToken is approved for swapping
+  /// @param fromToken Address of the token to swap from
+  /// @param toToken Address of the token to swap to
+  function swapApprovedPair(address fromToken, address toToken) external view returns (bool);
+
+  /// @notice Returns address of the Oracle to use for token swaps
+  /// @param token Address of the token to swap
+  function priceOracle(address token) external view returns (address);
+
+  /// @notice Returns the budget remaining for a given token
+  /// @param token The address of the token to query the budget for
+  function guardianTokenBudget(address token) external view returns (uint256);
+
+  /// @notice Returns the open swap owned by a SwapEscrow clone, or zero values if there is none
+  /// @param escrow Address of the SwapEscrow clone
+  function swaps(address escrow) external view returns (address fromToken, bytes32 orderHash);
 
   /// @notice Returns the expected amount of toToken for an amount of fromToken at the oracle prices, before slippage
   /// @param amount The amount of fromToken

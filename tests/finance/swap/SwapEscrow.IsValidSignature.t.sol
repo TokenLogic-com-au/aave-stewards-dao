@@ -27,9 +27,9 @@ contract SwapEscrowIsValidSignatureTest is SwapStewardTestBase {
 
   function test_isValidSignature_revertsWith_OrderNotValid_oracleMoved() public {
     address escrow = _swap(guardian, fromToken, toToken, swapAmount);
-    uint32 validUntil = uint32(block.timestamp + steward.ORDER_LIFETIME());
+    uint32 validTo = uint32(block.timestamp + steward.ORDER_LIFETIME());
 
-    (GPv2Order.Data memory order, bytes memory signature) = _getMarketOrderWithSignature(escrow, validUntil);
+    (GPv2Order.Data memory order, bytes memory signature) = _getMarketOrderWithSignature(escrow, validTo);
 
     int256 currentAnswer = AggregatorInterface(toOracle).latestAnswer();
     _mockLatestAnswer(
@@ -38,7 +38,7 @@ contract SwapEscrowIsValidSignatureTest is SwapStewardTestBase {
         / int256(PercentageMath.PERCENTAGE_FACTOR)
     );
 
-    (GPv2Order.Data memory refreshed,) = _getMarketOrderWithSignature(escrow, validUntil);
+    (GPv2Order.Data memory refreshed,) = _getMarketOrderWithSignature(escrow, validTo);
     assertNotEq(refreshed.buyAmount, order.buyAmount);
     deal(address(refreshed.buyToken), address(settlement), refreshed.buyAmount);
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, INVALID_HASH));
@@ -47,9 +47,9 @@ contract SwapEscrowIsValidSignatureTest is SwapStewardTestBase {
 
   function test_isValidSignature() public {
     address escrow = _swap(guardian, fromToken, toToken, swapAmount);
-    uint32 validUntil = uint32(block.timestamp + steward.ORDER_LIFETIME());
+    uint32 validTo = uint32(block.timestamp + steward.ORDER_LIFETIME());
 
-    (GPv2Order.Data memory order, bytes memory signature) = _getMarketOrderWithSignature(escrow, validUntil);
+    (GPv2Order.Data memory order, bytes memory signature) = _getMarketOrderWithSignature(escrow, validTo);
 
     assertEq(order.buyAmount, EXPECTED_BUY_AMOUNT);
     assertEq(

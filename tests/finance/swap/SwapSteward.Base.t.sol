@@ -100,8 +100,8 @@ abstract contract SwapStewardTestBase is SwapStewardTestUtils {
 
   function _approvePairsWithOtherToken() internal {
     vm.startPrank(executor);
-    steward.setSwappablePair(fromToken, otherToken, true);
-    steward.setSwappablePair(otherToken, fromToken, true);
+    steward.setSwappablePair(fromToken, otherToken);
+    steward.setSwappablePair(otherToken, fromToken);
     vm.stopPrank();
   }
 }

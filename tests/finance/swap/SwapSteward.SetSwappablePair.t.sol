@@ -9,30 +9,33 @@ contract SwapStewardSetSwappablePairTest is SwapStewardTestBase {
   function test_setSwappablePair_revertsWith_OwnableUnauthorizedAccount() public {
     vm.prank(alice);
     vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-    steward.setSwappablePair(fromToken, otherToken, true);
+    steward.setSwappablePair(fromToken, otherToken);
   }
 
-  function test_setSwappablePair_revertsWith_UnrecognizedTokenSwap() public {
+  function test_setSwappablePair_revertsWith_UnrecognizedTokenSwap_sameToken() public {
     vm.prank(executor);
     vm.expectRevert(ISwapSteward.UnrecognizedTokenSwap.selector);
-    steward.setSwappablePair(fromToken, fromToken, true);
+    steward.setSwappablePair(fromToken, fromToken);
+  }
+
+  function test_setSwappablePair_revertsWith_SwappablePairAlreadySet() public {
+    vm.startPrank(executor);
+    steward.setSwappablePair(fromToken, otherToken);
+
+    vm.expectRevert(ISwapSteward.SwappablePairAlreadySet.selector);
+    steward.setSwappablePair(fromToken, otherToken);
+    vm.stopPrank();
   }
 
   function test_setSwappablePair() public {
-    vm.startPrank(executor);
+    assertFalse(steward.swapApprovedPair(fromToken, otherToken));
 
     vm.expectEmit(true, true, true, true, address(steward));
-    emit ISwapSteward.SetSwappablePair(fromToken, otherToken, true);
-    steward.setSwappablePair(fromToken, otherToken, true);
+    emit ISwapSteward.SetSwappablePair(fromToken, otherToken);
+    vm.prank(executor);
+    steward.setSwappablePair(fromToken, otherToken);
 
     assertTrue(steward.swapApprovedPair(fromToken, otherToken));
     assertFalse(steward.swapApprovedPair(otherToken, fromToken));
-
-    vm.expectEmit(true, true, true, true, address(steward));
-    emit ISwapSteward.SetSwappablePair(fromToken, otherToken, false);
-    steward.setSwappablePair(fromToken, otherToken, false);
-
-    assertFalse(steward.swapApprovedPair(fromToken, otherToken));
-    vm.stopPrank();
   }
 }

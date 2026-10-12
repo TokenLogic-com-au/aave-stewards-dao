@@ -217,9 +217,9 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
   }
 
   function _expectedOut(uint256 amount) internal view returns (uint256) {
-    uint256 pFrom = uint256(AggregatorInterface(fromOracle).latestAnswer());
-    uint256 pTo = uint256(AggregatorInterface(toOracle).latestAnswer());
-    return
-      (amount * pFrom * 10 ** IERC20Metadata(toToken).decimals()) / (pTo * 10 ** IERC20Metadata(fromToken).decimals());
+    uint256 priceFrom = uint256(AggregatorInterface(fromOracle).latestAnswer());
+    uint256 priceTo = uint256(AggregatorInterface(toOracle).latestAnswer());
+    return (amount * priceFrom * 10 ** IERC20Metadata(toToken).decimals())
+      / (priceTo * 10 ** IERC20Metadata(fromToken).decimals());
   }
 }

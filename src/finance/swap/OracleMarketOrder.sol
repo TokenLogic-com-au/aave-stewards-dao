@@ -32,7 +32,7 @@ contract OracleMarketOrder is BaseConditionalOrder {
   /// @param sellAmount Amount of fromToken to sell
   /// @param slippage Allowed slippage against the oracle price in BIPS, where 10_000 is equal to 100%
   /// @param appData appData pinned on the order
-  /// @param validUntil Last timestamp at which the order can be settled, used as `validTo`
+  /// @param validTo Last timestamp at which the order can be settled (GPv2Order.validTo)
   /// @param sequencerUptimeFeed Chainlink L2 sequencer uptime feed, zero on chains without one
   /// @param sequencerGracePeriod Seconds the sequencer must be up before orders are generated
   struct Data {
@@ -44,7 +44,7 @@ contract OracleMarketOrder is BaseConditionalOrder {
     uint256 sellAmount;
     uint256 slippage;
     bytes32 appData;
-    uint32 validUntil;
+    uint32 validTo;
     address sequencerUptimeFeed;
     uint256 sequencerGracePeriod;
   }
@@ -58,7 +58,7 @@ contract OracleMarketOrder is BaseConditionalOrder {
   {
     Data memory data = abi.decode(staticInput, (Data));
 
-    if (block.timestamp > data.validUntil) revert IConditionalOrder.OrderNotValid(ORDER_EXPIRED);
+    if (block.timestamp > data.validTo) revert IConditionalOrder.OrderNotValid(ORDER_EXPIRED);
     if (IERC20(data.fromToken).balanceOf(owner) < data.sellAmount) {
       revert IConditionalOrder.OrderNotValid(INSUFFICIENT_BALANCE);
     }
@@ -84,7 +84,7 @@ contract OracleMarketOrder is BaseConditionalOrder {
       receiver: data.receiver,
       sellAmount: data.sellAmount,
       buyAmount: buyAmount,
-      validTo: data.validUntil,
+      validTo: data.validTo,
       appData: data.appData,
       feeAmount: 0,
       kind: GPv2Order.KIND_SELL,

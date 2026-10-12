@@ -77,7 +77,7 @@ abstract contract SwapStewardTestUtils is Test {
     bytes32 fundsAdminRole = ICollector(collector).FUNDS_ADMIN_ROLE();
     vm.startPrank(executor);
     IAccessControl(collector).grantRole(fundsAdminRole, address(steward));
-    steward.setSwappablePair(fromToken, toToken, true);
+    steward.setSwappablePair(fromToken, toToken);
     steward.setTokenOracle(fromToken, fromOracle);
     steward.setTokenOracle(toToken, toOracle);
     steward.increaseGuardianTokenBudget(fromToken, guardianBudget);
@@ -94,7 +94,7 @@ abstract contract SwapStewardTestUtils is Test {
     return vm.computeCreateAddress(address(steward), vm.getNonce(address(steward)));
   }
 
-  function _marketData(uint256 amount, uint32 validUntil) internal view returns (OracleMarketOrder.Data memory) {
+  function _marketData(uint256 amount, uint32 validTo) internal view returns (OracleMarketOrder.Data memory) {
     return OracleMarketOrder.Data({
       fromToken: fromToken,
       toToken: toToken,
@@ -104,7 +104,7 @@ abstract contract SwapStewardTestUtils is Test {
       sellAmount: amount,
       slippage: SWAP_SLIPPAGE,
       appData: appData,
-      validUntil: validUntil,
+      validTo: validTo,
       sequencerUptimeFeed: sequencerUptimeFeed,
       sequencerGracePeriod: sequencerGracePeriod
     });
@@ -120,13 +120,13 @@ abstract contract SwapStewardTestUtils is Test {
     );
   }
 
-  function _getMarketOrderWithSignature(address owner, uint32 validUntil)
+  function _getMarketOrderWithSignature(address owner, uint32 validTo)
     internal
     view
     returns (GPv2Order.Data memory, bytes memory)
   {
     return composableCow.getTradeableOrderWithSignature(
-      owner, _marketParams(_marketData(swapAmount, validUntil)), "", new bytes32[](0)
+      owner, _marketParams(_marketData(swapAmount, validTo)), "", new bytes32[](0)
     );
   }
 

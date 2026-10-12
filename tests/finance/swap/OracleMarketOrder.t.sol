@@ -38,7 +38,7 @@ contract MockSequencerFeed {
 contract OracleMarketOrderTest is Test {
   uint256 internal constant GRACE_PERIOD = 1 hours;
   uint256 internal constant NOW = 1_000_000;
-  uint32 internal constant VALID_UNTIL = uint32(NOW + 1 days);
+  uint32 internal constant VALID_TO = uint32(NOW + 1 days);
   uint256 internal constant SELL_AMOUNT = 1e18;
   address internal constant OWNER = address(0x0FFE);
   address internal constant RECEIVER = address(0xC011);
@@ -87,7 +87,7 @@ contract OracleMarketOrderTest is Test {
       sellAmount: SELL_AMOUNT,
       slippage: SLIPPAGE,
       appData: APP_DATA,
-      validUntil: VALID_UNTIL,
+      validTo: VALID_TO,
       sequencerUptimeFeed: address(sequencerFeed),
       sequencerGracePeriod: GRACE_PERIOD
     });
@@ -120,7 +120,7 @@ contract OracleMarketOrderTest is Test {
     assertEq(order.receiver, RECEIVER);
     assertEq(order.sellAmount, SELL_AMOUNT);
     assertEq(order.buyAmount, EXPECTED_BUY_AMOUNT);
-    assertEq(order.validTo, VALID_UNTIL);
+    assertEq(order.validTo, VALID_TO);
     assertEq(order.appData, APP_DATA);
     assertEq(order.feeAmount, 0);
     assertEq(order.kind, GPv2Order.KIND_SELL);
@@ -129,17 +129,17 @@ contract OracleMarketOrderTest is Test {
     assertEq(order.buyTokenBalance, GPv2Order.BALANCE_ERC20);
   }
 
-  function test_getTradeableOrder_notExpiredAtValidUntil() public {
+  function test_getTradeableOrder_notExpiredAtValidTo() public {
     sequencerFeed.set(0, NOW - GRACE_PERIOD - 1);
     bytes memory input = _staticInput();
-    vm.warp(VALID_UNTIL);
-    assertEq(handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "").validTo, VALID_UNTIL);
+    vm.warp(VALID_TO);
+    assertEq(handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "").validTo, VALID_TO);
   }
 
   function test_getTradeableOrder_revertsWith_OrderNotValid_expired() public {
     sequencerFeed.set(0, NOW - GRACE_PERIOD - 1);
     bytes memory input = _staticInput();
-    vm.warp(uint256(VALID_UNTIL) + 1);
+    vm.warp(uint256(VALID_TO) + 1);
     vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, ORDER_EXPIRED));
     handler.getTradeableOrder(OWNER, address(0), bytes32(0), input, "");
   }

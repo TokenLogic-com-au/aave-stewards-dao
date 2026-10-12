@@ -17,7 +17,13 @@ contract SwapStewardSetTokenOracleTest is SwapStewardTestBase {
   function test_setTokenOracle_revertsWith_InvalidZeroAddress() public {
     vm.prank(executor);
     vm.expectRevert(ISwapSteward.InvalidZeroAddress.selector);
-    steward.setTokenOracle(fromToken, address(0));
+    steward.setTokenOracle(otherToken, address(0));
+  }
+
+  function test_setTokenOracle_revertsWith_OracleAlreadySet() public {
+    vm.prank(executor);
+    vm.expectRevert(ISwapSteward.OracleAlreadySet.selector);
+    steward.setTokenOracle(fromToken, toOracle);
   }
 
   function test_setTokenOracle_revertsWith_PriceFeedIncompatibleDecimals() public {
@@ -25,7 +31,7 @@ contract SwapStewardSetTokenOracleTest is SwapStewardTestBase {
 
     vm.prank(executor);
     vm.expectRevert(ISwapSteward.PriceFeedIncompatibleDecimals.selector);
-    steward.setTokenOracle(fromToken, fromOracle);
+    steward.setTokenOracle(otherToken, fromOracle);
   }
 
   function test_setTokenOracle_revertsWith_PriceFeedInvalidAnswer_zero() public {
@@ -33,7 +39,7 @@ contract SwapStewardSetTokenOracleTest is SwapStewardTestBase {
 
     vm.prank(executor);
     vm.expectRevert(ISwapSteward.PriceFeedInvalidAnswer.selector);
-    steward.setTokenOracle(fromToken, mockOracle);
+    steward.setTokenOracle(otherToken, mockOracle);
   }
 
   function test_setTokenOracle_revertsWith_PriceFeedInvalidAnswer_negative() public {
@@ -41,7 +47,7 @@ contract SwapStewardSetTokenOracleTest is SwapStewardTestBase {
 
     vm.prank(executor);
     vm.expectRevert(ISwapSteward.PriceFeedInvalidAnswer.selector);
-    steward.setTokenOracle(fromToken, mockOracle);
+    steward.setTokenOracle(otherToken, mockOracle);
   }
 
   function test_setTokenOracle() public {
@@ -54,11 +60,6 @@ contract SwapStewardSetTokenOracleTest is SwapStewardTestBase {
     emit ISwapSteward.SetTokenOracle(otherToken, otherOracle);
     steward.setTokenOracle(otherToken, otherOracle);
     assertEq(steward.priceOracle(otherToken), otherOracle);
-
-    vm.expectEmit(true, true, true, true, address(steward));
-    emit ISwapSteward.SetTokenOracle(fromToken, toOracle);
-    steward.setTokenOracle(fromToken, toOracle);
-    assertEq(steward.priceOracle(fromToken), toOracle);
     vm.stopPrank();
   }
 }

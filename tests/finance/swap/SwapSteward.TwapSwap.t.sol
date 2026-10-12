@@ -66,7 +66,7 @@ contract SwapStewardTwapSwapTest is SwapStewardTestBase {
 
   function test_twapSwap_orderBounds() public {
     vm.prank(executor);
-    steward.setSwappablePair(fromToken, address(0), true);
+    steward.setSwappablePair(fromToken, address(0));
     deal(fromToken, collector, uint256(type(uint32).max) + 2 * twapPartAmount);
 
     OrderBoundsCase[] memory cases = new OrderBoundsCase[](10);

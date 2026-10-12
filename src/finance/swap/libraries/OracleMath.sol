@@ -33,12 +33,12 @@ library OracleMath {
     view
     returns (uint256)
   {
-    uint256 pFrom = _price(fromOracle);
-    uint256 pTo = _price(toOracle);
+    uint256 priceFrom = _price(fromOracle);
+    uint256 priceTo = _price(toOracle);
     uint8 fromDecimals = IERC20Metadata(fromToken).decimals();
     uint8 toDecimals = IERC20Metadata(toToken).decimals();
 
-    return Math.mulDiv(amount, pFrom * 10 ** toDecimals, pTo * 10 ** fromDecimals);
+    return Math.mulDiv(amount, priceFrom * 10 ** toDecimals, priceTo * 10 ** fromDecimals);
   }
 
   /**
