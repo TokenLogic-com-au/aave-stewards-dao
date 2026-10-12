@@ -72,6 +72,7 @@ contract SwapStewardConstructorTest is SwapStewardTestBase {
     assertEq(deployed.SEQUENCER_UPTIME_FEED(), sequencerFeed);
     assertEq(implementation.STEWARD(), address(deployed));
     assertEq(implementation.VAULT_RELAYER(), vaultRelayer);
+    assertEq(implementation.COLLECTOR(), collector);
     assertEq(address(implementation.COMPOSABLE_COW()), address(composableCow));
   }
 

@@ -93,7 +93,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
 
     COLLECTOR = collector;
     COMPOSABLE_COW = IComposableCow(composableCow);
-    SWAP_ESCROW_IMPLEMENTATION = address(new SwapEscrow(composableCow, vaultRelayer));
+    SWAP_ESCROW_IMPLEMENTATION = address(new SwapEscrow(composableCow, vaultRelayer, collector));
     MARKET_ORDER_HANDLER = marketOrderHandler;
     TWAP_HANDLER = twapHandler;
     SEQUENCER_UPTIME_FEED = sequencerUptimeFeed;
@@ -139,7 +139,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     if (pending.orderHash == bytes32(0)) revert SwapNotFound();
     delete swaps[escrow];
 
-    uint256 amount = SwapEscrow(escrow).close(pending.orderHash, IERC20(pending.fromToken), COLLECTOR);
+    uint256 amount = SwapEscrow(escrow).close(pending.orderHash, IERC20(pending.fromToken));
 
     emit SwapCanceled(escrow, pending.orderHash, pending.fromToken, amount);
   }

@@ -13,7 +13,7 @@ import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol
  * @author halaprix (Tokenlogic)
  * @notice Owner of one Composable CoW conditional order. SwapSteward deploys one minimal proxy clone
  * of this contract per swap, so the sell tokens and the relayer allowance of each order are separate.
- * @dev SwapEscrow declares no storage variables. STEWARD, VAULT_RELAYER and COMPOSABLE_COW are immutables of the
+ * @dev SwapEscrow declares no storage variables. STEWARD, VAULT_RELAYER, COLLECTOR and COMPOSABLE_COW are immutables of the
  * implementation, which every clone reads through delegatecall.
  */
 contract SwapEscrow is ERC1271Forwarder {
@@ -28,9 +28,13 @@ contract SwapEscrow is ERC1271Forwarder {
   /// @notice Returns the GPv2VaultRelayer that pulls the sold tokens
   address public immutable VAULT_RELAYER;
 
-  constructor(address composableCow, address vaultRelayer) ERC1271Forwarder(composableCow) {
+  /// @notice Returns the Collector that receives the token balance on close
+  address public immutable COLLECTOR;
+
+  constructor(address composableCow, address vaultRelayer, address collector) ERC1271Forwarder(composableCow) {
     STEWARD = msg.sender;
     VAULT_RELAYER = vaultRelayer;
+    COLLECTOR = collector;
   }
 
   modifier onlySteward() {
@@ -50,18 +54,19 @@ contract SwapEscrow is ERC1271Forwarder {
     token.forceApprove(VAULT_RELAYER, amount);
   }
 
-  /// @notice Removes the conditional order, zeroes the relayer allowance and sends the token balance to `to`
+  /// @notice Removes the conditional order, zeroes the relayer allowance and sends the token balance to the Collector
   /// @param orderHash Hash of the conditional order on ComposableCoW
   /// @param token The token that was being sold
-  /// @param to The receiver of the token balance
-  /// @return The amount of token sent to `to`
-  function close(bytes32 orderHash, IERC20 token, address to) external onlySteward returns (uint256) {
+  /// @return The amount of token sent to the Collector
+  function close(bytes32 orderHash, IERC20 token) external onlySteward returns (uint256) {
+    // ComposableCoW.remove only clears this escrow's own order entries and has no owner, proxy or pause,
+    // so it cannot revert and block close.
     COMPOSABLE_COW.remove(orderHash);
     token.forceApprove(VAULT_RELAYER, 0);
 
     uint256 balance = token.balanceOf(address(this));
     if (balance > 0) {
-      token.safeTransfer(to, balance);
+      token.safeTransfer(COLLECTOR, balance);
     }
 
     return balance;
