@@ -9,20 +9,20 @@ import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 import {OracleMath} from "src/finance/swap/libraries/OracleMath.sol";
 
+string constant SEQUENCER_DOWN = "sequencer down";
+string constant INVALID_SEQUENCER_TIMESTAMP = "invalid sequencer timestamp";
+string constant SEQUENCER_GRACE_PERIOD_NOT_OVER = "sequencer grace period not over";
+string constant INVALID_ORACLE_PRICE = "invalid oracle price";
+string constant ZERO_BUY_AMOUNT = "zero buy amount";
+string constant ORDER_EXPIRED = "order expired";
+string constant INSUFFICIENT_BALANCE = "insufficient balance";
+
 /**
  * @title OracleMarketOrder
  * @author halaprix
  * @notice Conditional order handler that prices a market swap from Chainlink oracles at execution time
  */
 contract OracleMarketOrder is BaseConditionalOrder {
-  string internal constant SEQUENCER_DOWN = "sequencer down";
-  string internal constant INVALID_SEQUENCER_TIMESTAMP = "invalid sequencer timestamp";
-  string internal constant SEQUENCER_GRACE_PERIOD_NOT_OVER = "sequencer grace period not over";
-  string internal constant INVALID_ORACLE_PRICE = "invalid oracle price";
-  string internal constant ZERO_BUY_AMOUNT = "zero buy amount";
-  string internal constant ORDER_EXPIRED = "order expired";
-  string internal constant INSUFFICIENT_BALANCE = "insufficient balance";
-
   /// @notice Static input of the conditional order
   /// @param fromToken Token being sold
   /// @param toToken Token being bought

@@ -7,6 +7,7 @@ import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainli
 import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
 import {INVALID_HASH} from "composable-cow/BaseConditionalOrder.sol";
 import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
+import {PercentageMath} from "aave-v3-origin/contracts/protocol/libraries/math/PercentageMath.sol";
 import {ERC1271Forwarder} from "src/finance/ERC1271Forwarder.sol";
 import {SwapEscrow} from "src/finance/swap/SwapEscrow.sol";
 import {SwapStewardTestBase} from "tests/finance/swap/SwapSteward.Base.t.sol";
@@ -16,7 +17,7 @@ contract SwapEscrowIsValidSignatureTest is SwapStewardTestBase {
     address escrow = _swap(guardian, fromToken, toToken, swapAmount);
 
     (GPv2Order.Data memory order, bytes memory signature) =
-      _getMarketOrderWithSignature(escrow, uint32(block.timestamp + 1 days));
+      _getMarketOrderWithSignature(escrow, uint32(block.timestamp + steward.ORDER_LIFETIME()));
 
     order.buyAmount -= 1;
     deal(address(order.buyToken), address(settlement), order.buyAmount);
@@ -26,15 +27,15 @@ contract SwapEscrowIsValidSignatureTest is SwapStewardTestBase {
 
   function test_isValidSignature_revertsWith_OrderNotValid_oracleMoved() public {
     address escrow = _swap(guardian, fromToken, toToken, swapAmount);
-    uint32 validUntil = uint32(block.timestamp + 1 days);
+    uint32 validUntil = uint32(block.timestamp + steward.ORDER_LIFETIME());
 
     (GPv2Order.Data memory order, bytes memory signature) = _getMarketOrderWithSignature(escrow, validUntil);
 
     int256 currentAnswer = AggregatorInterface(toOracle).latestAnswer();
-    vm.mockCall(
+    _mockLatestAnswer(
       toOracle,
-      abi.encodeWithSelector(AggregatorInterface.latestAnswer.selector),
-      abi.encode(currentAnswer * int256(BPS + ORACLE_MOVE_BPS) / int256(BPS))
+      currentAnswer * int256(PercentageMath.PERCENTAGE_FACTOR + ORACLE_MOVE_BPS)
+        / int256(PercentageMath.PERCENTAGE_FACTOR)
     );
 
     (GPv2Order.Data memory refreshed,) = _getMarketOrderWithSignature(escrow, validUntil);
@@ -46,7 +47,7 @@ contract SwapEscrowIsValidSignatureTest is SwapStewardTestBase {
 
   function test_isValidSignature() public {
     address escrow = _swap(guardian, fromToken, toToken, swapAmount);
-    uint32 validUntil = uint32(block.timestamp + 1 days);
+    uint32 validUntil = uint32(block.timestamp + steward.ORDER_LIFETIME());
 
     (GPv2Order.Data memory order, bytes memory signature) = _getMarketOrderWithSignature(escrow, validUntil);
 

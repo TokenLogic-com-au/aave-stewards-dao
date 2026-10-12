@@ -5,12 +5,14 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {GPv2Settlement} from "cowprotocol/contracts/GPv2Settlement.sol";
 import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
+import {PercentageMath} from "aave-v3-origin/contracts/protocol/libraries/math/PercentageMath.sol";
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 import {ComposableCoW} from "composable-cow/ComposableCoW.sol";
 import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
 import {TWAPOrder} from "composable-cow/types/twap/libraries/TWAPOrder.sol";
 import {BEFORE_TWAP_START} from "composable-cow/types/twap/libraries/TWAPOrderMathLib.sol";
 import {ISwapSteward} from "src/finance/swap/interfaces/ISwapSteward.sol";
+import {COMPOSABLE_COW, TWAP_HANDLER, VAULT_RELAYER} from "scripts/DeploySwapSteward.s.sol";
 import {SwapStewardTestUtils} from "tests/finance/swap/SwapStewardTestUtils.sol";
 
 /**
@@ -36,12 +38,7 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     uint256 twapMinPartLimit;
   }
 
-  // Canonical CoW deployments: the same CREATE2 address on every CoW chain, including Base (8453), which
-  // composable-cow networks.json does not list.
-  address internal constant COMPOSABLE_COW = 0xfdaFc9d1902f4e0b84f65F49f244b32b31013b74;
-  address internal constant TWAP_HANDLER = 0x6cF1e9cA41f7611dEf408122793c358a3d11E5a5;
   address internal constant GPV2_SETTLEMENT = 0x9008D19f58AAbD9eD0D60971565AA8510560ab41;
-  address internal constant VAULT_RELAYER = 0xC92E8bdf79f0507f65a392b0ab4667716BFE0110;
 
   function _config() internal view virtual returns (ChainConfig memory);
 
@@ -63,8 +60,9 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
 
     composableCow = ComposableCoW(COMPOSABLE_COW);
     twapHandler = TWAP_HANDLER;
-    vaultRelayer = VAULT_RELAYER;
     settlement = GPv2Settlement(payable(GPV2_SETTLEMENT));
+    vaultRelayer = address(settlement.vaultRelayer());
+    assertEq(vaultRelayer, VAULT_RELAYER);
 
     _deploySteward();
     _allowSolver();
@@ -76,7 +74,7 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
 
     address expectedEscrow = _expectedEscrow();
     IConditionalOrder.ConditionalOrderParams memory params =
-      _marketParams(_marketData(swapAmount, uint32(block.timestamp + 1 days)));
+      _marketParams(_marketData(swapAmount, uint32(block.timestamp + steward.ORDER_LIFETIME())));
 
     vm.expectEmit(true, true, true, true, address(steward));
     emit ISwapSteward.SwapRequested(
@@ -96,9 +94,10 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     assertEq(keccak256(abi.encode(params)), orderHash);
 
     (GPv2Order.Data memory order, bytes memory signature) =
-      _getMarketOrderWithSignature(escrow, uint32(block.timestamp + 1 days));
+      _getMarketOrderWithSignature(escrow, uint32(block.timestamp + steward.ORDER_LIFETIME()));
 
-    uint256 expectedBuyAmount = _expectedOut(swapAmount) * (BPS - SWAP_SLIPPAGE) / BPS;
+    uint256 expectedBuyAmount =
+      _expectedOut(swapAmount) * (PercentageMath.PERCENTAGE_FACTOR - SWAP_SLIPPAGE) / PercentageMath.PERCENTAGE_FACTOR;
 
     assertEq(address(order.sellToken), fromToken);
     assertEq(address(order.buyToken), toToken);
@@ -106,8 +105,8 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     assertEq(order.sellAmount, swapAmount);
     assertGt(expectedBuyAmount, 0);
     assertEq(order.buyAmount, expectedBuyAmount);
-    assertEq(order.validTo, block.timestamp + 1 days);
-    assertEq(order.appData, APP_DATA);
+    assertEq(order.validTo, block.timestamp + steward.ORDER_LIFETIME());
+    assertEq(order.appData, appData);
     assertEq(order.feeAmount, 0);
     assertEq(order.kind, GPv2Order.KIND_SELL);
     assertFalse(order.partiallyFillable);
@@ -185,7 +184,7 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     assertEq(first.sellAmount, twapPartAmount);
     assertEq(first.buyAmount, twapMinPartLimit);
     assertEq(first.validTo, t0 + TWAP_PART_DURATION - 1);
-    assertEq(first.appData, APP_DATA);
+    assertEq(first.appData, appData);
     assertEq(first.feeAmount, 0);
     assertEq(first.kind, GPv2Order.KIND_SELL);
     assertFalse(first.partiallyFillable);

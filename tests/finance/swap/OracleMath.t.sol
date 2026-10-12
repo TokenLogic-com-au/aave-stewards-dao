@@ -4,8 +4,9 @@ pragma solidity ^0.8.0;
 
 import {Test} from "forge-std/Test.sol";
 
+import {PercentageMath} from "aave-v3-origin/contracts/protocol/libraries/math/PercentageMath.sol";
 import {OracleMath} from "src/finance/swap/libraries/OracleMath.sol";
-import {MockAggregator} from "tests/finance/swap/OracleMocks.sol";
+import {MockAggregator, badAnswers} from "tests/finance/swap/OracleMocks.sol";
 
 contract OracleMathHarness {
   function getExpectedOut(address fromToken, address toToken, address fromOracle, address toOracle, uint256 amount)
@@ -33,7 +34,6 @@ contract OracleMathTest is Test {
   uint256 internal constant MAX_FUZZ_AMOUNT = 1e30;
   uint256 internal constant MAX_FUZZ_PRICE = 1e12;
   uint256 internal constant OVERFLOW_AMOUNT = 1e60;
-  uint256 internal constant TEST_BPS = 10_000;
 
   OracleMathHarness internal harness;
 
@@ -70,9 +70,9 @@ contract OracleMathTest is Test {
     address fromToken = _newMockToken(18);
     address toToken = _newMockToken(6);
     address toOracle = _newMockOracle(1e8);
-    int256[2] memory badAnswers = [int256(0), int256(-1)];
-    for (uint256 i; i < badAnswers.length; i++) {
-      address fromOracle = _newMockOracle(badAnswers[i]);
+    int256[2] memory answers = badAnswers();
+    for (uint256 i; i < answers.length; i++) {
+      address fromOracle = _newMockOracle(answers[i]);
       vm.expectRevert(abi.encodeWithSelector(OracleMath.InvalidPrice.selector, fromOracle));
       harness.getExpectedOut(fromToken, toToken, fromOracle, toOracle, 1e18);
     }
@@ -82,9 +82,9 @@ contract OracleMathTest is Test {
     address fromToken = _newMockToken(18);
     address toToken = _newMockToken(6);
     address fromOracle = _newMockOracle(1e8);
-    int256[2] memory badAnswers = [int256(0), int256(-1)];
-    for (uint256 i; i < badAnswers.length; i++) {
-      address toOracle = _newMockOracle(badAnswers[i]);
+    int256[2] memory answers = badAnswers();
+    for (uint256 i; i < answers.length; i++) {
+      address toOracle = _newMockOracle(answers[i]);
       vm.expectRevert(abi.encodeWithSelector(OracleMath.InvalidPrice.selector, toOracle));
       harness.getExpectedOut(fromToken, toToken, fromOracle, toOracle, 1e18);
     }
@@ -115,10 +115,10 @@ contract OracleMathTest is Test {
     priceFrom = bound(priceFrom, 1, MAX_FUZZ_PRICE);
     priceTo = bound(priceTo, 1, MAX_FUZZ_PRICE);
     amount = bound(amount, 0, MAX_FUZZ_AMOUNT);
-    slippage = bound(slippage, 0, TEST_BPS);
+    slippage = bound(slippage, 0, PercentageMath.PERCENTAGE_FACTOR);
 
     uint256 expected = amount * priceFrom * 10 ** toDecimals / (priceTo * 10 ** fromDecimals);
-    expected = expected * (TEST_BPS - slippage) / TEST_BPS;
+    expected = expected * (PercentageMath.PERCENTAGE_FACTOR - slippage) / PercentageMath.PERCENTAGE_FACTOR;
 
     uint256 out = harness.getMinOut(
       _newMockToken(fromDecimals),

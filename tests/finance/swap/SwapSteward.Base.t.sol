@@ -10,6 +10,7 @@ import {GPv2Settlement} from "cowprotocol/contracts/GPv2Settlement.sol";
 import {GPv2AllowListAuthentication} from "cowprotocol/contracts/GPv2AllowListAuthentication.sol";
 import {IVault} from "cowprotocol/contracts/interfaces/IVault.sol";
 import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
+import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 import {MockAggregator} from "tests/finance/swap/OracleMocks.sol";
 import {SwapStewardTestUtils} from "tests/finance/swap/SwapStewardTestUtils.sol";
 
@@ -56,7 +57,6 @@ abstract contract SwapStewardTestBase is SwapStewardTestUtils {
   uint256 internal constant EXPECTED_OUT = 5e15;
   /// @dev `EXPECTED_OUT` less the 50 bps slippage of `SWAP_SLIPPAGE`: 0.005 WETH * 99.5%
   uint256 internal constant EXPECTED_BUY_AMOUNT = 4_975e12;
-  uint256 internal constant MAX_SLIPPAGE = 10_00;
   uint256 internal constant TWAP_MAX_PART_DURATION = 365 days;
 
   address internal alice = makeAddr("alice");
@@ -92,6 +92,10 @@ abstract contract SwapStewardTestBase is SwapStewardTestUtils {
 
     _deploySteward();
     _allowSolver();
+  }
+
+  function _mockLatestAnswer(address oracle, int256 answer) internal {
+    vm.mockCall(oracle, abi.encodeWithSelector(AggregatorInterface.latestAnswer.selector), abi.encode(answer));
   }
 
   function _approvePairsWithOtherToken() internal {

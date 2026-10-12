@@ -13,7 +13,7 @@ import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol
  * @author halaprix (Tokenlogic)
  * @notice Owner of one Composable CoW conditional order. SwapSteward deploys one minimal proxy clone
  * of this contract per swap, so the sell tokens and the relayer allowance of each order are separate.
- * @dev Clones have no storage. STEWARD, VAULT_RELAYER and COMPOSABLE_COW are immutables of the
+ * @dev SwapEscrow declares no storage variables. STEWARD, VAULT_RELAYER and COMPOSABLE_COW are immutables of the
  * implementation, which every clone reads through delegatecall.
  */
 contract SwapEscrow is ERC1271Forwarder {

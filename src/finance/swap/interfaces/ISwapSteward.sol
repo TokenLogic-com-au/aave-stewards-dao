@@ -37,7 +37,7 @@ interface ISwapSteward {
   /// @dev There is no open swap owned by the escrow
   error SwapNotFound();
 
-  /// @dev Token pair has not been set for swapping
+  /// @dev Token pair is not approved for swapping, or both tokens are the same
   error UnrecognizedTokenSwap();
 
   /// @notice Emitted when a token pair is allowed or disallowed for swapping
@@ -123,6 +123,9 @@ interface ISwapSteward {
   /// @notice Returns the appData pinned on every order
   function APP_DATA() external view returns (bytes32);
 
+  /// @notice Returns the number of decimals every token oracle must report
+  function ORACLE_DECIMALS() external view returns (uint8);
+
   /// @notice Returns whether the path from fromToken to toToken is approved for swapping
   /// @param fromToken Address of the token to swap from
   /// @param toToken Address of the token to swap to
@@ -152,9 +155,11 @@ interface ISwapSteward {
   /// @notice Swaps a specified total amount of a sell token for a buy token in equal parts over time
   /// @dev Deploys a SwapEscrow clone that owns the order and holds `partSellAmount * numParts` of fromToken.
   ///      Guardian swaps consume the token budget. `minPartLimit` is a fixed limit, it is not checked against the
-  ///      oracles. Reverts with `StartTimeInPast` if `startTime` is non-zero and before the current block timestamp.
-  ///      Reverts with `IConditionalOrder.OrderNotValid` unless the resolved parameters satisfy the TWAP handler
-  ///      rules: `minPartLimit` > 0, start time < type(uint32).max, 1 < `numParts` <= type(uint32).max,
+  ///      oracles. Reverts with `InvalidZeroAmount` if `partSellAmount` or `numParts` is 0. Reverts with
+  ///      `UnrecognizedTokenSwap` if the pair is not approved, which includes `fromToken` equal to `toToken`.
+  ///      Reverts with `StartTimeInPast` if `startTime` is non-zero and before the current block timestamp.
+  ///      Otherwise reverts with `IConditionalOrder.OrderNotValid` unless the parameters pass `TWAPOrder.validate`:
+  ///      non-zero tokens, `minPartLimit` > 0, start time < type(uint32).max, 1 < `numParts` <= type(uint32).max,
   ///      0 < `partDuration` <= 365 days and `span` <= `partDuration`
   /// @param fromToken Address of the token to swap from
   /// @param toToken Address of the token to swap to
@@ -207,9 +212,9 @@ interface ISwapSteward {
   /// @param token The address of the token to rescue
   function rescueToken(address token) external;
 
-  /// @notice Transfers an amount of a token held by this contract to the Collector
+  /// @notice Transfers `amount` of a token held by this contract to the Collector, capped to the balance
   /// @param token The address of the token to rescue
-  /// @param amount The amount to rescue
+  /// @param amount The amount to rescue. If the balance is lower, the whole balance is transferred
   function rescueToken(address token, uint256 amount) external;
 
   /// @notice Returns the expected amount of toToken for an amount of fromToken at the oracle prices, before slippage

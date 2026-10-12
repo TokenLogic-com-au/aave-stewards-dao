@@ -44,6 +44,9 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   bytes32 public constant APP_DATA = bytes32(0);
 
   /// @inheritdoc ISwapSteward
+  uint8 public constant ORACLE_DECIMALS = 8;
+
+  /// @inheritdoc ISwapSteward
   address public immutable COLLECTOR;
 
   /// @inheritdoc ISwapSteward
@@ -163,7 +166,7 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   /// @inheritdoc ISwapSteward
   function setTokenOracle(address token, address oracle) external onlyOwner {
     if (oracle == address(0)) revert InvalidZeroAddress();
-    if (AggregatorInterface(oracle).decimals() != 8) revert PriceFeedIncompatibleDecimals();
+    if (AggregatorInterface(oracle).decimals() != ORACLE_DECIMALS) revert PriceFeedIncompatibleDecimals();
     _requirePositivePrice(oracle);
 
     priceOracle[token] = oracle;
@@ -279,7 +282,8 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     _requirePositivePrice(toOracle);
   }
 
-  /// @dev Validates a TWAP swap. Part/timing checks are left to `TWAPOrder.validate`.
+  /// @dev Validates a TWAP swap: amount, pair, and that a non-zero start time is not in the past.
+  /// Part and duration checks are left to `TWAPOrder.validate`.
   function _validateTwap(address fromToken, address toToken, uint256 amount, uint256 startTime) internal view {
     _validateCommon(fromToken, toToken, amount);
     if (startTime != 0 && startTime < block.timestamp) revert StartTimeInPast();

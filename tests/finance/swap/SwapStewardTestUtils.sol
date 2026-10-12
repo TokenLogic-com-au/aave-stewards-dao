@@ -3,8 +3,10 @@ pragma solidity ^0.8.0;
 
 import {Test} from "forge-std/Test.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {GPv2Settlement} from "cowprotocol/contracts/GPv2Settlement.sol";
 import {GPv2AllowListAuthentication} from "cowprotocol/contracts/GPv2AllowListAuthentication.sol";
+import {GPv2Signing} from "cowprotocol/contracts/mixins/GPv2Signing.sol";
 import {GPv2Trade} from "cowprotocol/contracts/libraries/GPv2Trade.sol";
 import {GPv2Interaction} from "cowprotocol/contracts/libraries/GPv2Interaction.sol";
 import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
@@ -21,18 +23,17 @@ import {SwapSteward} from "src/finance/swap/SwapSteward.sol";
  * A fixture assigns the environment fields in its `setUp`, then calls `_deploySteward` and `_allowSolver`.
  */
 abstract contract SwapStewardTestUtils is Test {
-  bytes32 internal constant APP_DATA = bytes32(0);
-  uint256 internal constant BPS = 100_00;
   uint256 internal constant SWAP_SLIPPAGE = 50;
   uint256 internal constant TWAP_NUM_PARTS = 4;
   uint256 internal constant TWAP_PART_DURATION = 1 hours;
-  uint32 internal constant SEQUENCER_GRACE_PERIOD = 1 hours;
   string internal constant GPV2_ORDER_FILLED = "GPv2: order filled";
   /// @dev GPv2Trade flags: bits 0-4 = 0 (sell, fill-or-kill, ERC20 sell and buy balances); bits 5-6 = signing
-  /// scheme, where GPv2Signing.Scheme.Eip1271 = 2.
+  /// scheme.
   /// https://github.com/cowprotocol/contracts/blob/a10f40788af29467e87de3dbf2196662b0a6b500/src/contracts/libraries/GPv2Trade.sol#L58-L131
   /// https://github.com/cowprotocol/contracts/blob/a10f40788af29467e87de3dbf2196662b0a6b500/src/contracts/mixins/GPv2Signing.sol#L24-L29
-  uint256 internal constant FLAGS_SELL_FILL_OR_KILL_EIP1271 = 2 << 5;
+  uint256 internal constant FLAGS_SIGNING_SCHEME_OFFSET = 5;
+  uint256 internal constant FLAGS_SELL_FILL_OR_KILL_EIP1271 =
+    uint256(GPv2Signing.Scheme.Eip1271) << FLAGS_SIGNING_SCHEME_OFFSET;
 
   address internal guardian = makeAddr("guardian");
   address internal solver = makeAddr("solver");
@@ -55,6 +56,8 @@ abstract contract SwapStewardTestUtils is Test {
   GPv2Settlement internal settlement;
   OracleMarketOrder internal marketOrderHandler;
   SwapSteward internal steward;
+  bytes32 internal appData;
+  uint32 internal sequencerGracePeriod;
 
   function _deploySteward() internal {
     marketOrderHandler = new OracleMarketOrder();
@@ -68,6 +71,8 @@ abstract contract SwapStewardTestUtils is Test {
       vaultRelayer,
       sequencerUptimeFeed
     );
+    appData = steward.APP_DATA();
+    sequencerGracePeriod = steward.SEQUENCER_GRACE_PERIOD();
 
     bytes32 fundsAdminRole = ICollector(collector).FUNDS_ADMIN_ROLE();
     vm.startPrank(executor);
@@ -98,10 +103,10 @@ abstract contract SwapStewardTestUtils is Test {
       receiver: collector,
       sellAmount: amount,
       slippage: SWAP_SLIPPAGE,
-      appData: APP_DATA,
+      appData: appData,
       validUntil: validUntil,
       sequencerUptimeFeed: sequencerUptimeFeed,
-      sequencerGracePeriod: SEQUENCER_GRACE_PERIOD
+      sequencerGracePeriod: sequencerGracePeriod
     });
   }
 
@@ -174,7 +179,7 @@ abstract contract SwapStewardTestUtils is Test {
       n: TWAP_NUM_PARTS,
       t: TWAP_PART_DURATION,
       span: span,
-      appData: APP_DATA
+      appData: appData
     });
   }
 
