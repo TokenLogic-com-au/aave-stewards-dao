@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {IBridgeSteward} from "../../IBridgeSteward.sol";
+
 /// @title IBaseEthERC20BridgeSteward
 /// @author efecarranza.eth (TokenLogic)
 /// @notice Defines the behaviour of the BaseEthERC20BridgeSteward.
-interface IBaseEthERC20BridgeSteward {
+interface IBaseEthERC20BridgeSteward is IBridgeSteward {
   /// @notice Emitted when bridging an ERC20 token from Base to Mainnet
   /// @param token Address of the Base token
   /// @param l1Token Address of the equivalent Mainnet token
@@ -36,11 +38,6 @@ interface IBaseEthERC20BridgeSteward {
   /// @dev Token has no L1 mapping set — call `setTokenMapping` first
   error TokenNotSet();
 
-  /// @notice Bridges an ERC20 token from the Base Collector to the Mainnet Collector
-  /// @param token The ERC20 address on Base
-  /// @param amount The amount of ERC20 token to bridge
-  function bridge(address token, uint256 amount) external;
-
   /// @notice Sets a token mapping for bridging (L2 -> L1)
   /// @param l2Token Address of the token on Base
   /// @param l1Token Address of the corresponding token on Mainnet
@@ -49,13 +46,6 @@ interface IBaseEthERC20BridgeSteward {
   /// @notice Removes a token mapping
   /// @param l2Token Address of the token on Base
   function removeTokenMapping(address l2Token) external;
-
-  /// @notice Rescues stuck ERC20 tokens back to the Base Collector
-  /// @param token The address of the ERC20 token to rescue
-  function rescueToken(address token) external;
-
-  /// @notice Rescues stuck ETH back to the Base Collector
-  function rescueEth() external;
 
   /// @notice Returns the Base L2 Standard Bridge address
   function L2_STANDARD_BRIDGE() external view returns (address);
