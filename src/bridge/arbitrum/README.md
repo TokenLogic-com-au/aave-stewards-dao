@@ -13,29 +13,45 @@ Not all ERC20 tokens on Arbitrum are compatible with the standard gateway. Each 
 - **Native USDC**: Bridged via Circle's CCTP, not through the standard gateway.
 - **wstETH**: Uses a custom bridge maintained by Lido.
 
+## Setup
+
+The steward pulls funds from the Arbitrum Collector via `Collector.transfer`, so governance must grant it the `FUNDS_ADMIN_ROLE` on the Arbitrum Collector. No token approvals are required. Governance must also allowlist each bridgeable token via `setTokenMapping`.
+
 ## Functions
 
 `function bridge(address token, uint256 amount) external`
 
-Callable by owner or guardian. Pulls `amount` of `token` from the Arbitrum Collector, then bridges to the Mainnet Collector via the token's configured L2 gateway. The token must have a valid config set via `setTokenMapping`.
+Callable on Arbitrum by owner or guardian. Pulls `amount` of `token` from the Arbitrum Collector, then bridges it to the Mainnet Collector via the L2 Gateway Router, which resolves the correct gateway for the token. The token must have an L1 mapping set via `setTokenMapping`.
 
-`function setTokenMapping(address l2Token, address l1Token, address gateway) external`
+`function bridgeEth(uint256 amount) external`
 
-Callable by owner only (governance). Sets the L1 token address and L2 gateway corresponding to an L2 token.
+Callable on Arbitrum by owner or guardian. Bridges `amount` of native ETH already held by the contract to the Mainnet Collector via the `ArbSys` precompile (`withdrawEth`). Reverts if the contract balance is lower than `amount`.
+
+`function setTokenMapping(address l2Token, address l1Token) external`
+
+Callable on Arbitrum by owner only (governance). Sets the L1 token address corresponding to an L2 token. The pair is validated against the L2 Gateway Router's `calculateL2TokenAddress(l1Token)`. Reverts if a mapping already exists; remove it first via `removeTokenMapping`.
 
 **Only tokens that have been mapped can be bridged.** The mapping starts empty; governance must explicitly allow each token.
 
 `function removeTokenMapping(address l2Token) external`
 
-Callable by owner only (governance). Removes a token mapping, disabling bridging for that token.
+Callable on Arbitrum by owner only (governance). Removes the L1 token mapping for a given L2 token, disabling bridging for that token.
+
+`function executeOutbox(bytes32[] proof, uint256 index, address l2Sender, address to, uint256 l2Block, uint256 l1Block, uint256 l2Timestamp, uint256 value, bytes data) external`
+
+Callable on Mainnet by anyone. Finalizes an L2-to-L1 message by forwarding it to the Arbitrum Outbox. See [Finalizing the Bridge](#finalizing-the-bridge).
 
 `function rescueToken(address token) external`
 
-Callable by owner or guardian. Rescues ERC20 tokens stuck in the contract back to the Arbitrum Collector.
+Callable on Arbitrum by owner or guardian. Rescues ERC20 tokens stuck in the contract back to the Arbitrum Collector.
 
-`function nonce() external view returns (uint256)`
+`function rescueEth() external`
 
-Returns the current bridge nonce. Each bridge operation increments the nonce.
+Callable on Arbitrum by owner or guardian. Rescues ETH stuck in the contract back to the Arbitrum Collector.
+
+`function config(address l2Token) external view returns (address l1Token)`
+
+Returns the L1 token mapped to `l2Token`, or the zero address if the token is not allowlisted.
 
 ## Finalizing the Bridge
 
@@ -49,7 +65,11 @@ The command to generate the proof is:
 
 Where `TX_HASH` is the hash of the bridge transaction on Arbitrum, `INDEX` is the withdrawal index (if there are 3 tokens bridged in the same transaction, the indexes will be 0, 1 and 2), and `ARBITRUM_BLOCK_OF_TX` is the block the bridge transaction happened at.
 
+The generated proof and message parameters are then passed to `executeOutbox` on Mainnet.
+
 ## Known Gateway Addresses (L2)
+
+For reference only. The gateway is resolved by the L2 Gateway Router at bridge time and is not configured on the steward.
 
 | Token  | Gateway                                      |
 | ------ | -------------------------------------------- |
