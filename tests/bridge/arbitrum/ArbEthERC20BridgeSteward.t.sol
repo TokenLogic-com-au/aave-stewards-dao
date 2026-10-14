@@ -318,6 +318,14 @@ contract BridgeEthTest is ArbEthERC20BridgeStewardTest {
         steward.bridgeEth(0);
     }
 
+    function test_revertsIf_insufficientBalance() public {
+        vm.deal(address(steward), 1 ether - 1);
+
+        vm.prank(OWNER);
+        vm.expectRevert(IArbEthERC20BridgeSteward.InsufficientBalance.selector);
+        steward.bridgeEth(1 ether);
+    }
+
     function test_successful_owner() public {
         _bridgeEth_successful(OWNER);
     }
