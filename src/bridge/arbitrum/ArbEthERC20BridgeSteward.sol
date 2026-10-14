@@ -10,6 +10,7 @@ import {OwnableWithGuardian} from "solidity-utils/contracts/access-control/Ownab
 import {ChainIds} from "solidity-utils/contracts/utils/ChainHelpers.sol";
 import {RescuableBase, IRescuableBase} from "solidity-utils/contracts/utils/RescuableBase.sol";
 
+import {IBridgeSteward} from "../IBridgeSteward.sol";
 import {IArbEthERC20BridgeSteward} from "./interfaces/IArbEthERC20BridgeSteward.sol";
 import {IL2GatewayRouter} from "./interfaces/IL2GatewayRouter.sol";
 import {IArbSys} from "./interfaces/IArbSys.sol";
@@ -75,7 +76,7 @@ contract ArbEthERC20BridgeSteward is
 
     receive() external payable {}
 
-    /// @inheritdoc IArbEthERC20BridgeSteward
+    /// @inheritdoc IBridgeSteward
     function bridge(
         address token,
         uint256 amount
@@ -172,12 +173,12 @@ contract ArbEthERC20BridgeSteward is
         emit OutboxExecuted(l2Sender, to);
     }
 
-    /// @inheritdoc IArbEthERC20BridgeSteward
+    /// @inheritdoc IBridgeSteward
     function rescueToken(address token) external onlyOwnerOrGuardian {
         _emergencyTokenTransfer(token, address(AaveV3Arbitrum.COLLECTOR), type(uint256).max);
     }
 
-    /// @inheritdoc IArbEthERC20BridgeSteward
+    /// @inheritdoc IBridgeSteward
     function rescueEth() external onlyOwnerOrGuardian {
         _emergencyEtherTransfer(address(AaveV3Arbitrum.COLLECTOR), address(this).balance);
     }

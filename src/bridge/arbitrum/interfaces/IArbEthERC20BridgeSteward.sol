@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {IBridgeSteward} from "../../IBridgeSteward.sol";
+
 /// @title IArbEthERC20BridgeSteward
 /// @author efecarranza.eth (TokenLogic)
 /// @notice Defines the behaviour of the ArbEthERC20BridgeSteward.
-interface IArbEthERC20BridgeSteward {
+interface IArbEthERC20BridgeSteward is IBridgeSteward {
     /// @dev Contract balance is lower than the requested bridge amount
     error InsufficientBalance();
 
@@ -57,11 +59,6 @@ interface IArbEthERC20BridgeSteward {
     /// @param l2Token Address of the token on Arbitrum that was removed
     event RemovedTokenMapping(address indexed l2Token);
 
-    /// @notice Bridges an ERC20 from the Arbitrum Collector to the Mainnet Collector
-    /// @param token L2 token address (must have an L1 mapping configured)
-    /// @param amount Amount to bridge
-    function bridge(address token, uint256 amount) external;
-
     /// @notice Bridges native ETH already sitting in the contract to the Mainnet Collector
     /// @param amount Amount of ETH to bridge
     function bridgeEth(uint256 amount) external;
@@ -96,13 +93,6 @@ interface IArbEthERC20BridgeSteward {
         uint256 value,
         bytes calldata data
     ) external;
-
-    /// @notice Rescues stuck ERC20 tokens back to the Arbitrum Collector
-    /// @param token Address of the ERC20 token to rescue
-    function rescueToken(address token) external;
-
-    /// @notice Rescues stuck ETH back to the Arbitrum Collector
-    function rescueEth() external;
 
     /// @notice Returns the Arbitrum L2 Gateway Router used to initiate withdrawals
     function L2_GATEWAY_ROUTER() external view returns (address);
