@@ -14,6 +14,10 @@ Not all ERC20 tokens on Optimism are compatible with the Standard Bridge. Only t
 - **USDT**: Uses a custom bridging mechanism; the Standard Bridge will reject it.
 - **Native USDC**: Bridged via Circle's CCTP, not through the Standard Bridge.
 
+## Setup
+
+The steward pulls funds from the Optimism Collector via `Collector.transfer`, so governance must grant it the `FUNDS_ADMIN_ROLE` on the Optimism Collector. No token approvals are required. Governance must also allowlist each bridgeable token via `setTokenMapping`.
+
 ## Functions
 
 `function bridge(address token, uint256 amount) external`
@@ -41,6 +45,10 @@ Callable on Optimism by owner or guardian. Rescues ERC20 tokens stuck in the con
 `function rescueEth() external`
 
 Callable on Optimism by owner or guardian. Rescues ETH stuck in the contract back to the Optimism Collector.
+
+`function tokenMapping(address l2Token) external view returns (address l1Token)`
+
+Returns the L1 token mapped to `l2Token`, or the zero address if the token is not allowlisted.
 
 ## Proving The Message
 
