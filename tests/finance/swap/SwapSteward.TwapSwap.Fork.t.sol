@@ -67,30 +67,6 @@ contract SwapStewardTwapSwapForkTest is SwapStewardMainnetForkTestBase {
     assertEq(first.sellToken.balanceOf(escrow), twapPartAmount * (TWAP_NUM_PARTS - 2));
   }
 
-  function test_twapSwap_cancelAfterPart() public {
-    uint256 t0 = block.timestamp;
-    address escrow = _twapSwap(guardian, _twapData(0, 0));
-    (, bytes32 orderHash) = steward.swaps(escrow);
-
-    (GPv2Order.Data memory first, bytes memory signature) = _getTwapOrderWithSignature(escrow, t0);
-    deal(toToken, address(settlement), first.buyAmount);
-    _settle(escrow, first, signature);
-
-    uint256 remainder = twapPartAmount * (TWAP_NUM_PARTS - 1);
-    vm.expectEmit(address(steward));
-    emit ISwapSteward.SwapCanceled(escrow, orderHash, fromToken, remainder);
-    vm.prank(guardian);
-    steward.cancelSwap(escrow);
-
-    (address swapFromToken, bytes32 swapHash) = steward.swaps(escrow);
-    assertEq(swapFromToken, address(0));
-    assertEq(swapHash, bytes32(0));
-    assertFalse(composableCow.singleOrders(escrow, orderHash));
-    assertEq(IERC20(fromToken).allowance(escrow, vaultRelayer), 0);
-    assertEq(IERC20(fromToken).balanceOf(escrow), 0);
-    assertEq(IERC20(fromToken).balanceOf(collector), COLLECTOR_BALANCE - twapPartAmount);
-  }
-
   function test_twapSwap_twoSameFromToken() public {
     uint256 total = twapPartAmount * TWAP_NUM_PARTS;
     TWAPOrder.Data memory data = _twapData(block.timestamp, 0);
@@ -117,5 +93,41 @@ contract SwapStewardTwapSwapForkTest is SwapStewardMainnetForkTestBase {
     assertTrue(composableCow.singleOrders(second, secondHash));
     assertEq(IERC20(fromToken).balanceOf(second), total);
     assertEq(IERC20(fromToken).allowance(second, vaultRelayer), total);
+  }
+
+  function test_fuzz_cancelSwap_afterPartialFill(uint256 partsFilled, uint256 donated) public {
+    partsFilled = bound(partsFilled, 0, TWAP_NUM_PARTS - 1);
+    donated = bound(donated, 0, COLLECTOR_BALANCE);
+
+    uint256 t0 = block.timestamp;
+    address escrow = _twapSwap(guardian, _twapData(0, 0));
+    (, bytes32 orderHash) = steward.swaps(escrow);
+    uint256 budgetAfterSwap = steward.guardianTokenBudget(fromToken);
+
+    for (uint256 i; i < partsFilled; i++) {
+      vm.warp(t0 + i * TWAP_PART_DURATION);
+      (GPv2Order.Data memory part, bytes memory signature) = _getTwapOrderWithSignature(escrow, t0);
+      deal(toToken, address(settlement), part.buyAmount);
+      _settle(escrow, part, signature);
+    }
+
+    deal(fromToken, escrow, IERC20(fromToken).balanceOf(escrow) + donated);
+    uint256 remainder = twapPartAmount * (TWAP_NUM_PARTS - partsFilled) + donated;
+    uint256 collectorFromBefore = IERC20(fromToken).balanceOf(collector);
+
+    vm.expectEmit(address(steward));
+    emit ISwapSteward.SwapCanceled(escrow, orderHash, fromToken, remainder);
+    vm.prank(guardian);
+    steward.cancelSwap(escrow);
+
+    (address swapFromToken, bytes32 swapHash) = steward.swaps(escrow);
+    assertEq(swapFromToken, address(0));
+    assertEq(swapHash, bytes32(0));
+    assertEq(IERC20(fromToken).balanceOf(collector), collectorFromBefore + remainder);
+    assertEq(IERC20(toToken).balanceOf(collector), partsFilled * twapMinPartLimit);
+    assertEq(IERC20(fromToken).balanceOf(escrow), 0);
+    assertEq(IERC20(fromToken).allowance(escrow, vaultRelayer), 0);
+    assertFalse(composableCow.singleOrders(escrow, orderHash));
+    assertEq(steward.guardianTokenBudget(fromToken), budgetAfterSwap);
   }
 }

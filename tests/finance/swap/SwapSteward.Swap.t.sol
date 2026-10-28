@@ -153,4 +153,30 @@ contract SwapStewardSwapTest is SwapStewardTestBase {
     assertEq(IERC20(fromToken).allowance(escrow, vaultRelayer), swapAmount);
     assertEq(steward.guardianTokenBudget(fromToken), guardianBudget - swapAmount);
   }
+
+  function test_fuzz_swap_guardianBudget(uint256 budget, uint256 amount, bool sentinel) public {
+    budget = bound(budget, 0, COLLECTOR_BALANCE);
+    amount = bound(amount, 1, COLLECTOR_BALANCE);
+
+    vm.startPrank(executor);
+    if (budget > guardianBudget) steward.increaseGuardianTokenBudget(fromToken, budget - guardianBudget);
+    else if (budget < guardianBudget) steward.decreaseGuardianTokenBudget(fromToken, guardianBudget - budget);
+    vm.stopPrank();
+    assertEq(steward.guardianTokenBudget(fromToken), budget);
+
+    uint256 resolved = sentinel ? budget : amount;
+    address escrow = _expectedEscrow();
+    vm.prank(guardian);
+    if (resolved == 0) {
+      vm.expectRevert(ISwapSteward.InvalidZeroAmount.selector);
+    } else if (resolved > budget) {
+      vm.expectRevert(ISwapSteward.InsufficientBudget.selector);
+    }
+    steward.swap(fromToken, toToken, sentinel ? type(uint256).max : amount, SWAP_SLIPPAGE);
+
+    bool opened = resolved != 0 && resolved <= budget;
+    assertEq(steward.guardianTokenBudget(fromToken), opened ? budget - resolved : budget);
+    assertEq(IERC20(fromToken).balanceOf(escrow), opened ? resolved : 0);
+    assertEq(IERC20(fromToken).balanceOf(collector), COLLECTOR_BALANCE - (opened ? resolved : 0));
+  }
 }
