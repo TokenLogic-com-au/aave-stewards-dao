@@ -11,7 +11,7 @@ import {RescuableBase, IRescuableBase} from "solidity-utils/contracts/utils/Resc
 import {ERC1271Forwarder} from "src/finance/ERC1271Forwarder.sol";
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
-import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
+import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
 import {IMilkman} from "src/finance/interfaces/IMilkman.sol";
 import {IPriceChecker} from "src/finance/interfaces/IPriceChecker.sol";
 import {IMainnetSwapSteward} from "src/finance/interfaces/IMainnetSwapSteward.sol";

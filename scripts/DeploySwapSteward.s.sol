@@ -64,6 +64,7 @@ contract Deploy is Script {
     address guardian;
     address collector;
     address sequencerUptimeFeed;
+    // Chains are added as needed, depending on the ARFC.
     if (block.chainid == ChainIds.MAINNET) {
       executor = GovernanceV3Ethereum.EXECUTOR_LVL_1;
       guardian = MiscEthereum.AFC_SAFE;

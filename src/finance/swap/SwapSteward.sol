@@ -12,9 +12,8 @@ import {RescuableBase} from "solidity-utils/contracts/utils/RescuableBase.sol";
 import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 
-import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
-import {TWAPOrder} from "composable-cow/types/twap/libraries/TWAPOrder.sol";
-import {IERC20 as GPv2IERC20} from "cowprotocol/contracts/interfaces/IERC20.sol";
+import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
+import {TWAPOrder} from "src/finance/libraries/TWAPOrder.sol";
 
 import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
 import {OracleMarketOrder} from "src/finance/swap/OracleMarketOrder.sol";
@@ -272,8 +271,8 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
     uint256 span
   ) internal view returns (IConditionalOrder.ConditionalOrderParams memory) {
     TWAPOrder.Data memory order = TWAPOrder.Data({
-      sellToken: GPv2IERC20(fromToken),
-      buyToken: GPv2IERC20(toToken),
+      sellToken: IERC20(fromToken),
+      buyToken: IERC20(toToken),
       receiver: COLLECTOR,
       partSellAmount: partSellAmount,
       minPartLimit: minPartLimit,

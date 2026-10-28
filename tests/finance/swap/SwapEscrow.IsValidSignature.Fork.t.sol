@@ -4,15 +4,16 @@ pragma solidity ^0.8.0;
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC1271} from "openzeppelin-contracts/contracts/interfaces/IERC1271.sol";
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
-import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
-import {INVALID_HASH} from "composable-cow/BaseConditionalOrder.sol";
-import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
+import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
+import {INVALID_HASH} from "src/finance/BaseConditionalOrder.sol";
+import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
 import {PercentageMath} from "aave-v3-origin/contracts/protocol/libraries/math/PercentageMath.sol";
 import {ERC1271Forwarder} from "src/finance/ERC1271Forwarder.sol";
 import {SwapEscrow} from "src/finance/swap/SwapEscrow.sol";
-import {SwapStewardTestBase} from "tests/finance/swap/SwapSteward.Base.t.sol";
+import {SwapStewardMainnetForkTestBase} from "tests/finance/swap/SwapStewardMainnetForkTestBase.sol";
+import {ORDER_EXPIRED} from "src/finance/swap/OracleMarketOrder.sol";
 
-contract SwapEscrowIsValidSignatureTest is SwapStewardTestBase {
+contract SwapEscrowIsValidSignatureForkTest is SwapStewardMainnetForkTestBase {
   function test_isValidSignature_revertsWith_InvalidHash() public {
     address escrow = _swap(guardian, fromToken, toToken, swapAmount);
 
@@ -65,5 +66,11 @@ contract SwapEscrowIsValidSignatureTest is SwapStewardTestBase {
     assertEq(IERC20(fromToken).balanceOf(escrow), 0);
     assertEq(IERC20(fromToken).balanceOf(address(settlement)), swapAmount);
     assertEq(settlement.filledAmount(_orderUid(escrow, order)), swapAmount);
+
+    vm.warp(validTo + 1);
+    vm.expectRevert(abi.encodeWithSelector(IConditionalOrder.OrderNotValid.selector, ORDER_EXPIRED));
+    composableCow.getTradeableOrderWithSignature(
+      escrow, _marketParams(_marketData(swapAmount, validTo)), "", new bytes32[](0)
+    );
   }
 }

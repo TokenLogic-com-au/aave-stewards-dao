@@ -9,7 +9,7 @@ contract SwapStewardForkMainnetTest is SwapStewardForkTestBase {
   function _config() internal pure override returns (ChainConfig memory) {
     return ChainConfig({
       rpcAlias: "mainnet",
-      forkBlock: 26148310, // https://etherscan.io/block/26148310
+      forkBlock: MAINNET_FORK_BLOCK,
       executor: GovernanceV3Ethereum.EXECUTOR_LVL_1,
       collector: address(AaveV3Ethereum.COLLECTOR),
       sequencerUptimeFeed: address(0),

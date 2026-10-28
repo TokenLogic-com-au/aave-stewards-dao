@@ -3,21 +3,20 @@ pragma solidity ^0.8.0;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {GPv2Settlement} from "cowprotocol/contracts/GPv2Settlement.sol";
-import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
+import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
 import {PercentageMath} from "aave-v3-origin/contracts/protocol/libraries/math/PercentageMath.sol";
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
-import {ComposableCoW} from "composable-cow/ComposableCoW.sol";
-import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
-import {TWAPOrder} from "composable-cow/types/twap/libraries/TWAPOrder.sol";
-import {BEFORE_TWAP_START} from "composable-cow/types/twap/libraries/TWAPOrderMathLib.sol";
+import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
+import {TWAPOrder} from "src/finance/libraries/TWAPOrder.sol";
 import {ISwapSteward} from "src/finance/swap/interfaces/ISwapSteward.sol";
 import {COMPOSABLE_COW, TWAP_HANDLER, VAULT_RELAYER} from "scripts/DeploySwapSteward.s.sol";
 import {SwapStewardTestUtils} from "tests/finance/swap/SwapStewardTestUtils.sol";
+import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
+import {IGPv2Settlement} from "src/finance/interfaces/IGPv2Settlement.sol";
 
 /**
  * @dev Fork integration test for SwapSteward contract, run once per chain against the live Collector, ComposableCoW,
- * TWAP handler, GPv2Settlement and Chainlink oracles. Logic and revert paths live in the non-fork suites
+ * TWAP handler, GPv2Settlement and Chainlink oracles. Logic and revert paths live in the unit fixture on a pinned mainnet fork test suites
  * `tests/finance/swap/SwapSteward.*.t.sol` and `tests/finance/swap/SwapEscrow.*.t.sol`.
  * command: forge test -vvv --match-path 'tests/finance/swap/SwapStewardFork.*.t.sol'
  */
@@ -38,8 +37,6 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     uint256 twapMinPartLimit;
   }
 
-  address internal constant GPV2_SETTLEMENT = 0x9008D19f58AAbD9eD0D60971565AA8510560ab41;
-
   function _config() internal view virtual returns (ChainConfig memory);
 
   function setUp() public {
@@ -58,9 +55,9 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     twapPartAmount = cfg.twapPartAmount;
     twapMinPartLimit = cfg.twapMinPartLimit;
 
-    composableCow = ComposableCoW(COMPOSABLE_COW);
+    composableCow = IComposableCow(COMPOSABLE_COW);
     twapHandler = TWAP_HANDLER;
-    settlement = GPv2Settlement(payable(GPV2_SETTLEMENT));
+    settlement = IGPv2Settlement(GPV2_SETTLEMENT);
     vaultRelayer = address(settlement.vaultRelayer());
     assertEq(vaultRelayer, VAULT_RELAYER);
 
@@ -76,6 +73,8 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     IConditionalOrder.ConditionalOrderParams memory params =
       _marketParams(_marketData(swapAmount, uint32(block.timestamp + steward.ORDER_LIFETIME())));
 
+    vm.expectEmit(true, true, true, true, address(composableCow));
+    emit IComposableCow.ConditionalOrderCreated(expectedEscrow, params);
     vm.expectEmit(true, true, true, true, address(steward));
     emit ISwapSteward.SwapRequested(
       expectedEscrow, keccak256(abi.encode(params)), fromToken, toToken, fromOracle, toOracle, swapAmount, SWAP_SLIPPAGE
@@ -141,6 +140,12 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     assertEq(IERC20(fromToken).balanceOf(escrow), 0);
     assertEq(IERC20(fromToken).balanceOf(collector), collectorBalanceBefore);
 
+    IConditionalOrder.ConditionalOrderParams memory params =
+      _marketParams(_marketData(swapAmount, uint32(block.timestamp + steward.ORDER_LIFETIME())));
+    assertEq(keccak256(abi.encode(params)), orderHash);
+    vm.expectRevert(IComposableCow.SingleOrderNotAuthed.selector);
+    composableCow.getTradeableOrderWithSignature(escrow, params, "", new bytes32[](0));
+
     vm.prank(guardian);
     vm.expectRevert(ISwapSteward.SwapNotFound.selector);
     steward.cancelSwap(escrow);
@@ -157,6 +162,8 @@ abstract contract SwapStewardForkTestBase is SwapStewardTestUtils {
     bytes32 expectedHash = keccak256(abi.encode(params));
     address expectedEscrow = _expectedEscrow();
 
+    vm.expectEmit(true, true, true, true, address(composableCow));
+    emit IComposableCow.ConditionalOrderCreated(expectedEscrow, params);
     vm.expectEmit(true, true, true, true, address(steward));
     emit ISwapSteward.TWAPSwapRequested(expectedEscrow, expectedHash, fromToken, toToken, total);
     address escrow = _twapSwap(guardian, data);

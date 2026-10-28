@@ -2,8 +2,8 @@
 pragma solidity ^0.8.0;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {ComposableCoW} from "composable-cow/ComposableCoW.sol";
-import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
+import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
+import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
 import {SwapEscrow} from "src/finance/swap/SwapEscrow.sol";
 import {SwapStewardTestBase} from "tests/finance/swap/SwapSteward.Base.t.sol";
 
@@ -29,7 +29,7 @@ contract SwapEscrowOpenTest is SwapStewardTestBase {
     assertFalse(composableCow.singleOrders(escrow, orderHash));
 
     vm.expectEmit(true, true, true, true, address(composableCow));
-    emit ComposableCoW.ConditionalOrderCreated(escrow, params);
+    emit IComposableCow.ConditionalOrderCreated(escrow, params);
     vm.prank(address(steward));
     SwapEscrow(escrow).open(params, IERC20(fromToken), OPEN_ALLOWANCE);
 

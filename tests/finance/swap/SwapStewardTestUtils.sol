@@ -4,25 +4,22 @@ pragma solidity ^0.8.0;
 import {Test} from "forge-std/Test.sol";
 import {IAccessControl} from "openzeppelin-contracts/contracts/access/IAccessControl.sol";
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {GPv2Settlement} from "cowprotocol/contracts/GPv2Settlement.sol";
-import {GPv2AllowListAuthentication} from "cowprotocol/contracts/GPv2AllowListAuthentication.sol";
-import {GPv2Signing} from "cowprotocol/contracts/mixins/GPv2Signing.sol";
-import {GPv2Trade} from "cowprotocol/contracts/libraries/GPv2Trade.sol";
-import {GPv2Interaction} from "cowprotocol/contracts/libraries/GPv2Interaction.sol";
-import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
-import {IERC20 as GPv2IERC20} from "cowprotocol/contracts/interfaces/IERC20.sol";
-import {ComposableCoW} from "composable-cow/ComposableCoW.sol";
-import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
-import {TWAPOrder} from "composable-cow/types/twap/libraries/TWAPOrder.sol";
+import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
+import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
+import {TWAPOrder} from "src/finance/libraries/TWAPOrder.sol";
 import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
 import {OracleMarketOrder} from "src/finance/swap/OracleMarketOrder.sol";
 import {SwapSteward} from "src/finance/swap/SwapSteward.sol";
+import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
+import {IGPv2AllowListAuthentication} from "src/finance/interfaces/IGPv2AllowListAuthentication.sol";
+import {IGPv2Settlement} from "src/finance/interfaces/IGPv2Settlement.sol";
 
 /**
- * @dev Constants, state and helpers shared by the SwapSteward non-fork fixture and the SwapSteward fork fixture.
+ * @dev Constants, state and helpers shared by the SwapSteward unit fixture on a pinned mainnet fork and the SwapSteward fork fixture.
  * A fixture assigns the environment fields in its `setUp`, then calls `_deploySteward` and `_allowSolver`.
  */
 abstract contract SwapStewardTestUtils is Test {
+  address internal constant GPV2_SETTLEMENT = 0x9008D19f58AAbD9eD0D60971565AA8510560ab41;
   uint256 internal constant SWAP_SLIPPAGE = 50;
   uint256 internal constant TWAP_NUM_PARTS = 4;
   uint256 internal constant TWAP_PART_DURATION = 1 hours;
@@ -32,8 +29,11 @@ abstract contract SwapStewardTestUtils is Test {
   /// https://github.com/cowprotocol/contracts/blob/a10f40788af29467e87de3dbf2196662b0a6b500/src/contracts/libraries/GPv2Trade.sol#L58-L131
   /// https://github.com/cowprotocol/contracts/blob/a10f40788af29467e87de3dbf2196662b0a6b500/src/contracts/mixins/GPv2Signing.sol#L24-L29
   uint256 internal constant FLAGS_SIGNING_SCHEME_OFFSET = 5;
-  uint256 internal constant FLAGS_SELL_FILL_OR_KILL_EIP1271 =
-    uint256(GPv2Signing.Scheme.Eip1271) << FLAGS_SIGNING_SCHEME_OFFSET;
+  uint256 internal constant SIGNING_SCHEME_EIP1271 = 2;
+  uint256 internal constant FLAGS_SELL_FILL_OR_KILL_EIP1271 = SIGNING_SCHEME_EIP1271 << FLAGS_SIGNING_SCHEME_OFFSET;
+  uint256 internal constant MAINNET_FORK_BLOCK = 26148310; // https://etherscan.io/block/26148310
+  /// @dev Revert reason of the TWAP handler before the order start, from composable-cow `TWAPOrderMathLib`
+  string internal constant BEFORE_TWAP_START = "before twap start";
 
   address internal guardian = makeAddr("guardian");
   address internal solver = makeAddr("solver");
@@ -50,10 +50,10 @@ abstract contract SwapStewardTestUtils is Test {
   uint256 internal twapPartAmount;
   uint256 internal twapMinPartLimit;
 
-  ComposableCoW internal composableCow;
+  IComposableCow internal composableCow;
   address internal twapHandler;
   address internal vaultRelayer;
-  GPv2Settlement internal settlement;
+  IGPv2Settlement internal settlement;
   OracleMarketOrder internal marketOrderHandler;
   SwapSteward internal steward;
   bytes32 internal appData;
@@ -85,7 +85,7 @@ abstract contract SwapStewardTestUtils is Test {
   }
 
   function _allowSolver() internal {
-    GPv2AllowListAuthentication authenticator = GPv2AllowListAuthentication(address(settlement.authenticator()));
+    IGPv2AllowListAuthentication authenticator = settlement.authenticator();
     vm.prank(authenticator.manager());
     authenticator.addSolver(solver);
   }
@@ -133,12 +133,11 @@ abstract contract SwapStewardTestUtils is Test {
   /// @dev GPv2Settlement exposes no UID getter; `filledAmount` is keyed by the packed UID (digest, owner, validTo).
   /// https://github.com/cowprotocol/contracts/blob/a10f40788af29467e87de3dbf2196662b0a6b500/src/contracts/libraries/GPv2Order.sol#L167-L212
   function _orderUid(address owner, GPv2Order.Data memory order) internal view returns (bytes memory orderUid) {
-    orderUid = new bytes(GPv2Order.UID_LENGTH);
-    GPv2Order.packOrderUidParams(orderUid, GPv2Order.hash(order, settlement.domainSeparator()), owner, order.validTo);
+    orderUid = abi.encodePacked(GPv2Order.hash(order, settlement.domainSeparator()), owner, order.validTo);
   }
 
   function _settle(address owner, GPv2Order.Data memory order, bytes memory signature) internal {
-    GPv2IERC20[] memory tokens = new GPv2IERC20[](2);
+    IERC20[] memory tokens = new IERC20[](2);
     tokens[0] = order.sellToken;
     tokens[1] = order.buyToken;
 
@@ -146,8 +145,8 @@ abstract contract SwapStewardTestUtils is Test {
     clearingPrices[0] = order.buyAmount;
     clearingPrices[1] = order.sellAmount;
 
-    GPv2Trade.Data[] memory trades = new GPv2Trade.Data[](1);
-    trades[0] = GPv2Trade.Data({
+    IGPv2Settlement.Trade[] memory trades = new IGPv2Settlement.Trade[](1);
+    trades[0] = IGPv2Settlement.Trade({
       sellTokenIndex: 0,
       buyTokenIndex: 1,
       receiver: order.receiver,
@@ -162,7 +161,7 @@ abstract contract SwapStewardTestUtils is Test {
     });
 
     // pre, intra and post-settlement interactions; all empty because the settlement already holds the buy tokens
-    GPv2Interaction.Data[][3] memory interactions;
+    IGPv2Settlement.Interaction[][3] memory interactions;
 
     vm.prank(solver);
     settlement.settle(tokens, clearingPrices, trades, interactions);
@@ -170,8 +169,8 @@ abstract contract SwapStewardTestUtils is Test {
 
   function _twapData(uint256 startTime, uint256 span) internal view returns (TWAPOrder.Data memory) {
     return TWAPOrder.Data({
-      sellToken: GPv2IERC20(fromToken),
-      buyToken: GPv2IERC20(toToken),
+      sellToken: IERC20(fromToken),
+      buyToken: IERC20(toToken),
       receiver: collector,
       partSellAmount: twapPartAmount,
       minPartLimit: twapMinPartLimit,

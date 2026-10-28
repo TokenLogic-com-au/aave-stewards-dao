@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IWithGuardian} from "solidity-utils/contracts/access-control/interfaces/IWithGuardian.sol";
-import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
+import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
 import {ISwapSteward} from "src/finance/swap/interfaces/ISwapSteward.sol";
 import {SwapStewardTestBase} from "tests/finance/swap/SwapSteward.Base.t.sol";
 

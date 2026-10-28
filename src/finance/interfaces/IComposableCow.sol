@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
-// Interface extracted from https://github.com/cowprotocol/composable-cow/blob/c0435953ac8312a606d66c91554f2bb4d22ec686/src/ComposableCoW.sol
-// composable-cow tag ack3-rev2.0 (file last changed in 9f0c6110ec2eb498341a0d45a0168e735a18ed1b).
-// Subset of the external API: PayloadStruct, singleOrders, domainSeparator, create, remove, hash, isValidSafeSignature.
 
-import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
+import {IConditionalOrder} from "./IConditionalOrder.sol";
+import {GPv2Order} from "../libraries/GPv2Order.sol";
 
 interface IComposableCow {
   /// A struct to encapsulate order parameters / offchain input
@@ -13,6 +11,12 @@ interface IComposableCow {
     IConditionalOrder.ConditionalOrderParams params;
     bytes offchainInput;
   }
+
+  /// @dev Vendored from `cowprotocol/composable-cow` at commit `c0435953ac8312a606d66c91554f2bb4d22ec686`, path `src/ComposableCoW.sol`.
+  error SingleOrderNotAuthed();
+
+  /// @dev Vendored from `cowprotocol/composable-cow` at commit `c0435953ac8312a606d66c91554f2bb4d22ec686`, path `src/ComposableCoW.sol`.
+  event ConditionalOrderCreated(address indexed owner, IConditionalOrder.ConditionalOrderParams params);
 
   /// @dev Mapping of owner's single orders
   function singleOrders(address user, bytes32 _hash) external returns (bool);
@@ -47,4 +51,12 @@ interface IComposableCow {
     bytes calldata encodeData,
     bytes calldata payload
   ) external view returns (bytes4 magic);
+
+  /// @dev Vendored from `cowprotocol/composable-cow` at commit `c0435953ac8312a606d66c91554f2bb4d22ec686`, path `src/ComposableCoW.sol`.
+  function getTradeableOrderWithSignature(
+    address owner,
+    IConditionalOrder.ConditionalOrderParams calldata params,
+    bytes calldata offchainInput,
+    bytes32[] calldata proof
+  ) external view returns (GPv2Order.Data memory order, bytes memory signature);
 }

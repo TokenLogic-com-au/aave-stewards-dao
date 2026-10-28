@@ -13,8 +13,8 @@ import {
   ORDER_EXPIRED,
   INSUFFICIENT_BALANCE
 } from "src/finance/swap/OracleMarketOrder.sol";
-import {IConditionalOrder} from "composable-cow/interfaces/IConditionalOrder.sol";
-import {GPv2Order} from "cowprotocol/contracts/libraries/GPv2Order.sol";
+import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
+import {GPv2Order} from "src/finance/libraries/GPv2Order.sol";
 import {MockAggregator, badAnswers} from "tests/finance/swap/OracleMocks.sol";
 
 contract MockSequencerFeed {

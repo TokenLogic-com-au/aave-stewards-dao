@@ -4,22 +4,17 @@ pragma solidity ^0.8.0;
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AccessControl} from "openzeppelin-contracts/contracts/access/AccessControl.sol";
-import {ComposableCoW} from "composable-cow/ComposableCoW.sol";
-import {TWAP} from "composable-cow/types/twap/TWAP.sol";
-import {GPv2Settlement} from "cowprotocol/contracts/GPv2Settlement.sol";
-import {GPv2AllowListAuthentication} from "cowprotocol/contracts/GPv2AllowListAuthentication.sol";
-import {IVault} from "cowprotocol/contracts/interfaces/IVault.sol";
 import {ICollector} from "aave-v3-origin/contracts/treasury/ICollector.sol";
 import {AggregatorInterface} from "aave-v3-origin/contracts/dependencies/chainlink/AggregatorInterface.sol";
 import {MockAggregator} from "tests/finance/swap/OracleMocks.sol";
+import {IComposableCow} from "src/finance/interfaces/IComposableCow.sol";
+import {IConditionalOrder} from "src/finance/interfaces/IConditionalOrder.sol";
 import {SwapStewardTestUtils} from "tests/finance/swap/SwapStewardTestUtils.sol";
 
 /**
- * @dev Stands in for the aave-v3-origin Collector, which cannot be compiled in this repository: its
- * AccessControlUpgradeable base imports the OpenZeppelin package of the composable-cow remapping, an older release
- * that lacks the `AccessControlUnauthorizedAccount` error. Reproduces the one surface SwapSteward uses,
- * `transfer` gated by FUNDS_ADMIN_ROLE that reverts with `ICollector.OnlyFundsAdmin` like the real Collector, and the
- * admin that grants that role.
+ * @dev Stands in for the aave-v3-origin Collector. Reproduces the one surface SwapSteward uses, `transfer` gated by
+ * FUNDS_ADMIN_ROLE that reverts with `ICollector.OnlyFundsAdmin` like the real Collector, and the admin that grants
+ * that role.
  */
 contract MockCollector is AccessControl {
   using SafeERC20 for IERC20;
@@ -38,10 +33,32 @@ contract MockCollector is AccessControl {
 }
 
 /**
- * @dev Non-fork fixture of the SwapSteward suites. Deploys the pinned ComposableCoW, TWAP handler, GPv2Settlement and
- * GPv2AllowListAuthentication from lib/composable-cow, a MockCollector, and mock tokens and oracles. The swap token is
- * a 6-decimal USDC, the buy token a 18-decimal WETH.
- * command: forge test -vvv --match-path 'tests/finance/swap/Swap{Steward,Escrow}.*.t.sol'
+ * @dev Stands in for ComposableCoW. Reproduces the order registry SwapEscrow and SwapSteward use: `create`, `remove`,
+ * `hash` and `singleOrders`, with the same hash and event as the deployed contract. Signature verification and order
+ * generation are not mocked; tests that need them run on the mainnet fork fixture.
+ */
+contract MockComposableCow {
+  mapping(address owner => mapping(bytes32 orderHash => bool)) public singleOrders;
+
+  function create(IConditionalOrder.ConditionalOrderParams calldata params, bool dispatch) external {
+    singleOrders[msg.sender][hash(params)] = true;
+    if (dispatch) emit IComposableCow.ConditionalOrderCreated(msg.sender, params);
+  }
+
+  function remove(bytes32 orderHash) external {
+    singleOrders[msg.sender][orderHash] = false;
+  }
+
+  function hash(IConditionalOrder.ConditionalOrderParams memory params) public pure returns (bytes32) {
+    return keccak256(abi.encode(params));
+  }
+}
+
+/**
+ * @dev Unit fixture of the SwapSteward suites. No fork: ComposableCoW is a MockComposableCow, the TWAP handler and
+ * vault relayer are placeholder addresses, and tokens, oracles and the Collector are mocks. The swap token is a
+ * 6-decimal USDC, the buy token a 18-decimal WETH. Subclasses override `_setUpCow` to use the deployed CoW contracts.
+ * command: forge test -vvv --match-path 'tests/finance/swap/Swap{Steward,Escrow}.*.t.sol' --no-match-path '*Fork*'
  */
 abstract contract SwapStewardTestBase is SwapStewardTestUtils {
   uint256 internal constant ORACLE_MOVE_BPS = 100;
@@ -79,19 +96,18 @@ abstract contract SwapStewardTestBase is SwapStewardTestUtils {
     toOracle = address(new MockAggregator(TO_PRICE));
     otherOracle = address(new MockAggregator(OTHER_PRICE));
 
-    GPv2AllowListAuthentication authenticator = new GPv2AllowListAuthentication();
-    authenticator.initializeManager(makeAddr("authenticatorManager"));
-    settlement = new GPv2Settlement(authenticator, IVault(makeAddr("balancerVault")));
-    vaultRelayer = address(settlement.vaultRelayer());
-
-    composableCow = new ComposableCoW(address(settlement));
-    twapHandler = address(new TWAP(composableCow));
+    _setUpCow();
 
     collector = address(new MockCollector(executor));
     deal(fromToken, collector, COLLECTOR_BALANCE);
 
     _deploySteward();
-    _allowSolver();
+  }
+
+  function _setUpCow() internal virtual {
+    composableCow = IComposableCow(address(new MockComposableCow()));
+    twapHandler = makeAddr("twapHandler");
+    vaultRelayer = makeAddr("vaultRelayer");
   }
 
   function _mockLatestAnswer(address oracle, int256 answer) internal {
