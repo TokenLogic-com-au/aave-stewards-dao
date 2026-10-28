@@ -219,16 +219,18 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   /// Guardian swaps consume the token budget; owner swaps do not.
   function _openSwap(address fromToken, uint256 amount, IConditionalOrder.ConditionalOrderParams memory params)
     internal
-    returns (address escrow, bytes32 orderHash)
+    returns (address, bytes32)
   {
-    escrow = Clones.clone(SWAP_ESCROW_IMPLEMENTATION);
+    address escrow = Clones.clone(SWAP_ESCROW_IMPLEMENTATION);
     ICollector(COLLECTOR).transfer(IERC20(fromToken), escrow, amount);
     if (msg.sender != owner()) _decreaseBudget(fromToken, amount);
 
-    orderHash = COMPOSABLE_COW.hash(params);
+    bytes32 orderHash = COMPOSABLE_COW.hash(params);
     swaps[escrow] = Swap({fromToken: fromToken, orderHash: orderHash});
 
     SwapEscrow(escrow).open(params, IERC20(fromToken), amount);
+
+    return (escrow, orderHash);
   }
 
   /// @dev Builds the conditional order params of an oracle-priced market order paying out to the Collector.
@@ -291,14 +293,16 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   function _validateSwap(address fromToken, address toToken, uint256 amount, uint256 slippage)
     internal
     view
-    returns (address fromOracle, address toOracle)
+    returns (address, address)
   {
     if (slippage > MAX_SLIPPAGE) revert InvalidSlippage();
     _validateCommon(fromToken, toToken, amount);
 
-    (fromOracle, toOracle) = _getOracles(fromToken, toToken);
+    (address fromOracle, address toOracle) = _getOracles(fromToken, toToken);
     _validatePositivePrice(fromOracle);
     _validatePositivePrice(toOracle);
+
+    return (fromOracle, toOracle);
   }
 
   /// @dev Validates a TWAP swap: amount, pair, and that a non-zero start time is not in the past.
@@ -315,14 +319,12 @@ contract SwapSteward is ISwapSteward, OwnableWithGuardian, Multicall, RescuableB
   }
 
   /// @dev Returns the oracles of both tokens, reverting if either is not set.
-  function _getOracles(address fromToken, address toToken)
-    internal
-    view
-    returns (address fromOracle, address toOracle)
-  {
-    fromOracle = priceOracle[fromToken];
-    toOracle = priceOracle[toToken];
+  function _getOracles(address fromToken, address toToken) internal view returns (address, address) {
+    address fromOracle = priceOracle[fromToken];
+    address toOracle = priceOracle[toToken];
     if (fromOracle == address(0) || toOracle == address(0)) revert OracleNotSet();
+
+    return (fromOracle, toOracle);
   }
 
   /// @dev Reverts unless the oracle reports a strictly positive price.

@@ -132,8 +132,8 @@ abstract contract SwapStewardTestUtils is Test {
 
   /// @dev GPv2Settlement exposes no UID getter; `filledAmount` is keyed by the packed UID (digest, owner, validTo).
   /// https://github.com/cowprotocol/contracts/blob/a10f40788af29467e87de3dbf2196662b0a6b500/src/contracts/libraries/GPv2Order.sol#L167-L212
-  function _orderUid(address owner, GPv2Order.Data memory order) internal view returns (bytes memory orderUid) {
-    orderUid = abi.encodePacked(GPv2Order.hash(order, settlement.domainSeparator()), owner, order.validTo);
+  function _orderUid(address owner, GPv2Order.Data memory order) internal view returns (bytes memory) {
+    return abi.encodePacked(GPv2Order.hash(order, settlement.domainSeparator()), owner, order.validTo);
   }
 
   function _settle(address owner, GPv2Order.Data memory order, bytes memory signature) internal {
