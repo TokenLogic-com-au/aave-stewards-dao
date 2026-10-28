@@ -6,6 +6,8 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 /// @title Gnosis Protocol v2 Order Library
 /// @author Gnosis Developers
+/// @dev Vendored from `cowprotocol/contracts` at commit `a10f40788af29467e87de3dbf2196662b0a6b500`, path
+///      `src/contracts/libraries/GPv2Order.sol`, reduced to what this repo uses.
 library GPv2Order {
   /// @dev The complete data for a Gnosis Protocol order. This struct contains
   /// all order parameters that are signed for submitting to GP.
@@ -23,6 +25,12 @@ library GPv2Order {
     bytes32 sellTokenBalance;
     bytes32 buyTokenBalance;
   }
+
+  /// @dev The marker value for a sell order for computing the order struct hash, `keccak256("sell")`.
+  bytes32 internal constant KIND_SELL = hex"f3b277728b3fee749481eb3e0b3b48980dbbab78658fc419025cb16eee346775";
+
+  /// @dev The TokenBalance marker value for using direct ERC20 balances, `keccak256("erc20")`.
+  bytes32 internal constant BALANCE_ERC20 = hex"5a28e9363bb942b639270062aa6bb295f434bcdfc42c97267bf003f272060dc9";
 
   /// ```
   /// keccak256(

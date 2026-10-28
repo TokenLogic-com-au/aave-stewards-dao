@@ -1,5 +1,8 @@
 {
   "lib/aave-helpers": {
     "rev": "2f0f37bebb8b79be47911302e8834c7634458875"
+  },
+  "lib/composable-cow": {
+    "rev": "c0435953ac8312a606d66c91554f2bb4d22ec686"
   }
 }
