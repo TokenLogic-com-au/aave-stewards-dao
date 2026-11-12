@@ -26,6 +26,7 @@ import {AaveV3Ethereum} from "aave-address-book/AaveV3Ethereum.sol";
 import {AaveV3EthereumLido} from "aave-address-book/AaveV3EthereumLido.sol";
 import {AaveV3EthereumEtherFi} from "aave-address-book/AaveV3EthereumEtherFi.sol";
 import {GovernanceV3Ethereum} from "aave-address-book/GovernanceV3Ethereum.sol";
+import {AaveV4EthereumTokenizationSpokes} from "aave-address-book/AaveV4Ethereum.sol";
 
 import {AaveV3BNB} from "aave-address-book/AaveV3BNB.sol";
 import {GovernanceV3BNB} from "aave-address-book/GovernanceV3BNB.sol";
@@ -56,11 +57,22 @@ import {PoolExposureSteward} from "../src/finance/PoolExposureSteward.sol";
 address constant FINANCE_STEWARD_SAFE = 0x22740deBa78d5a0c24C58C740e3715ec29de1bFa;
 
 library DeploymentLibrary {
+  /// @dev Deployment for networks without Aave V4 TokenizationSpokes
   function _deploy(address admin, ICollector collector, address[] memory poolsV2, address[] memory poolsV3) internal {
+    _deploy(admin, collector, poolsV2, poolsV3, new address[](0));
+  }
+
+  function _deploy(
+    address admin,
+    ICollector collector,
+    address[] memory poolsV2,
+    address[] memory poolsV3,
+    address[] memory tokenizationSpokes
+  ) internal {
     Create2Utils.create2Deploy(
-      "v1",
+      "v2",
       type(PoolExposureSteward).creationCode,
-      abi.encode(admin, FINANCE_STEWARD_SAFE, address(collector), poolsV2, poolsV3)
+      abi.encode(admin, FINANCE_STEWARD_SAFE, address(collector), poolsV2, poolsV3, tokenizationSpokes)
     );
   }
 }
@@ -76,7 +88,27 @@ contract Deploy is Script {
       poolsV3[0] = address(AaveV3Ethereum.POOL);
       poolsV3[1] = address(AaveV3EthereumLido.POOL);
       poolsV3[2] = address(AaveV3EthereumEtherFi.POOL);
-      DeploymentLibrary._deploy(GovernanceV3Ethereum.EXECUTOR_LVL_1, AaveV3Ethereum.COLLECTOR, poolsV2, poolsV3);
+      address[] memory tokenizationSpokes = new address[](17);
+      tokenizationSpokes[0] = address(AaveV4EthereumTokenizationSpokes.CORE_WETH_TOKENIZATION_SPOKE);
+      tokenizationSpokes[1] = address(AaveV4EthereumTokenizationSpokes.CORE_wstETH_TOKENIZATION_SPOKE);
+      tokenizationSpokes[2] = address(AaveV4EthereumTokenizationSpokes.CORE_weETH_TOKENIZATION_SPOKE);
+      tokenizationSpokes[3] = address(AaveV4EthereumTokenizationSpokes.CORE_rsETH_TOKENIZATION_SPOKE);
+      tokenizationSpokes[4] = address(AaveV4EthereumTokenizationSpokes.CORE_USDT_TOKENIZATION_SPOKE);
+      tokenizationSpokes[5] = address(AaveV4EthereumTokenizationSpokes.CORE_USDC_TOKENIZATION_SPOKE);
+      tokenizationSpokes[6] = address(AaveV4EthereumTokenizationSpokes.CORE_GHO_TOKENIZATION_SPOKE);
+      tokenizationSpokes[7] = address(AaveV4EthereumTokenizationSpokes.CORE_RLUSD_TOKENIZATION_SPOKE);
+      tokenizationSpokes[8] = address(AaveV4EthereumTokenizationSpokes.CORE_USDG_TOKENIZATION_SPOKE);
+      tokenizationSpokes[9] = address(AaveV4EthereumTokenizationSpokes.CORE_frxUSD_TOKENIZATION_SPOKE);
+      tokenizationSpokes[10] = address(AaveV4EthereumTokenizationSpokes.CORE_EURC_TOKENIZATION_SPOKE);
+      tokenizationSpokes[11] = address(AaveV4EthereumTokenizationSpokes.CORE_WBTC_TOKENIZATION_SPOKE);
+      tokenizationSpokes[12] = address(AaveV4EthereumTokenizationSpokes.CORE_cbBTC_TOKENIZATION_SPOKE);
+      tokenizationSpokes[13] = address(AaveV4EthereumTokenizationSpokes.CORE_LBTC_TOKENIZATION_SPOKE);
+      tokenizationSpokes[14] = address(AaveV4EthereumTokenizationSpokes.CORE_AAVE_TOKENIZATION_SPOKE);
+      tokenizationSpokes[15] = address(AaveV4EthereumTokenizationSpokes.CORE_LINK_TOKENIZATION_SPOKE);
+      tokenizationSpokes[16] = address(AaveV4EthereumTokenizationSpokes.CORE_XAUt_TOKENIZATION_SPOKE);
+      DeploymentLibrary._deploy(
+        GovernanceV3Ethereum.EXECUTOR_LVL_1, AaveV3Ethereum.COLLECTOR, poolsV2, poolsV3, tokenizationSpokes
+      );
     }
 
     if (ChainIds.POLYGON == block.chainid) {
@@ -105,9 +137,9 @@ contract Deploy is Script {
     }
 
     if (ChainIds.ARBITRUM == block.chainid) {
-      initialPoolsV3[0] = address(AaveV3Optimism.POOL);
+      initialPoolsV3[0] = address(AaveV3Arbitrum.POOL);
       DeploymentLibrary._deploy(
-        GovernanceV3Optimism.EXECUTOR_LVL_1, AaveV3Optimism.COLLECTOR, initialPoolsV2, initialPoolsV3
+        GovernanceV3Arbitrum.EXECUTOR_LVL_1, AaveV3Arbitrum.COLLECTOR, initialPoolsV2, initialPoolsV3
       );
     }
 
