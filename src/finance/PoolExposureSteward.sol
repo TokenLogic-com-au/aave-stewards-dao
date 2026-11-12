@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ICollector, CollectorUtils as CU} from "aave-helpers/src/CollectorUtils.sol";
+import {ITokenizationSpoke} from "aave-address-book/AaveV4.sol";
 import {OwnableWithGuardian} from "solidity-utils/contracts/access-control/OwnableWithGuardian.sol";
 import {RescuableBase, IRescuableBase} from "solidity-utils/contracts/utils/RescuableBase.sol";
 import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
@@ -13,7 +14,7 @@ import {IPoolExposureSteward} from "./interfaces/IPoolExposureSteward.sol";
  * @title PoolExposureSteward
  * @author luigy-lemon  (Karpatkey)
  * @author efecarranza  (Tokenlogic)
- * @notice Manages deposits, withdrawals, and asset migrations between Aave V2 and Aave V3 assets held in the Collector.
+ * @notice Manages deposits, withdrawals, and asset migrations between Aave V2, Aave V3 and Aave V4 assets held in the Collector.
  *
  * The contract inherits from `Multicall`. Using the `multicall` function from this contract
  * multiple operations can be bundled into a single transaction.
@@ -21,8 +22,10 @@ import {IPoolExposureSteward} from "./interfaces/IPoolExposureSteward.sol";
  * -- Security Considerations
  *
  * -- Pools
- * The pools managed by the steward are allowListed.
+ * The pools and tokenization spokes managed by the steward are allowListed.
  * As v2 pools are deprecated, the steward only implements withdrawals from v2.
+ * Aave V4 positions are only held through TokenizationSpokes, each tokenizing a single asset of a Hub.
+ * The underlying of every V4 action is derived from the TokenizationSpoke, never provided by the caller.
  *
  * -- Permissions
  * The contract implements OwnableWithGuardian.
@@ -41,14 +44,20 @@ contract PoolExposureSteward is IPoolExposureSteward, OwnableWithGuardian, Rescu
 
   /// @inheritdoc IPoolExposureSteward
   mapping(address poolV3 => bool approved) public approvedV3Pools;
+
+  /// @inheritdoc IPoolExposureSteward
   mapping(address poolV2 => bool approved) public approvedV2Pools;
+
+  /// @inheritdoc IPoolExposureSteward
+  mapping(address tokenizationSpoke => bool approved) public approvedTokenizationSpokes;
 
   constructor(
     address initialOwner,
     address initialGuardian,
     address collector,
     address[] memory poolsV2,
-    address[] memory poolsV3
+    address[] memory poolsV3,
+    address[] memory tokenizationSpokes
   ) OwnableWithGuardian(initialOwner, initialGuardian) {
     COLLECTOR = ICollector(collector);
 
@@ -59,6 +68,10 @@ contract PoolExposureSteward is IPoolExposureSteward, OwnableWithGuardian, Rescu
     for (uint256 i; i < poolsV3.length; i++) {
       _approvePool(poolsV3[i], true);
     }
+
+    for (uint256 i; i < tokenizationSpokes.length; i++) {
+      _approveTokenizationSpoke(tokenizationSpokes[i]);
+    }
   }
 
   /// Steward Actions
@@ -68,6 +81,13 @@ contract PoolExposureSteward is IPoolExposureSteward, OwnableWithGuardian, Rescu
     _validateV3Pool(pool);
 
     COLLECTOR.depositToV3(CU.IOInput({pool: pool, underlying: reserve, amount: amount}));
+  }
+
+  /// @inheritdoc IPoolExposureSteward
+  function depositV4(address tokenizationSpoke, uint256 amount) external onlyOwnerOrGuardian returns (uint256) {
+    _validateTokenizationSpoke(tokenizationSpoke);
+
+    return COLLECTOR.depositToV4(tokenizationSpoke, amount);
   }
 
   /// @inheritdoc IPoolExposureSteward
@@ -82,6 +102,13 @@ contract PoolExposureSteward is IPoolExposureSteward, OwnableWithGuardian, Rescu
     _validateV2Pool(pool);
 
     COLLECTOR.withdrawFromV2(CU.IOInput(pool, underlying, amount), address(COLLECTOR));
+  }
+
+  /// @inheritdoc IPoolExposureSteward
+  function withdrawV4(address tokenizationSpoke, uint256 amount) external onlyOwnerOrGuardian returns (uint256) {
+    _validateTokenizationSpoke(tokenizationSpoke);
+
+    return COLLECTOR.withdrawFromV4(tokenizationSpoke, amount, address(COLLECTOR));
   }
 
   /// @inheritdoc IPoolExposureSteward
@@ -104,6 +131,54 @@ contract PoolExposureSteward is IPoolExposureSteward, OwnableWithGuardian, Rescu
     _migrateBetweenV3(fromPool, toPool, underlying, amount);
   }
 
+  /// @inheritdoc IPoolExposureSteward
+  function migrateV2toV4(address v2Pool, address tokenizationSpoke, uint256 amount)
+    external
+    onlyOwnerOrGuardian
+    returns (uint256)
+  {
+    _validateV2Pool(v2Pool);
+    _validateTokenizationSpoke(tokenizationSpoke);
+
+    address underlying = ITokenizationSpoke(tokenizationSpoke).asset();
+    uint256 withdrawnAmt = COLLECTOR.withdrawFromV2(CU.IOInput(v2Pool, underlying, amount), address(COLLECTOR));
+
+    return COLLECTOR.depositToV4(tokenizationSpoke, withdrawnAmt);
+  }
+
+  /// @inheritdoc IPoolExposureSteward
+  function migrateV3toV4(address v3Pool, address tokenizationSpoke, uint256 amount)
+    external
+    onlyOwnerOrGuardian
+    returns (uint256)
+  {
+    _validateV3Pool(v3Pool);
+    _validateTokenizationSpoke(tokenizationSpoke);
+
+    address underlying = ITokenizationSpoke(tokenizationSpoke).asset();
+    uint256 withdrawnAmt = COLLECTOR.withdrawFromV3(CU.IOInput(v3Pool, underlying, amount), address(COLLECTOR));
+
+    return COLLECTOR.depositToV4(tokenizationSpoke, withdrawnAmt);
+  }
+
+  /// @inheritdoc IPoolExposureSteward
+  function migrateBetweenV4(address fromTokenizationSpoke, address toTokenizationSpoke, uint256 amount)
+    external
+    onlyOwnerOrGuardian
+    returns (uint256)
+  {
+    _validateTokenizationSpoke(fromTokenizationSpoke);
+    _validateTokenizationSpoke(toTokenizationSpoke);
+
+    if (ITokenizationSpoke(fromTokenizationSpoke).asset() != ITokenizationSpoke(toTokenizationSpoke).asset()) {
+      revert MismatchingTokenizationSpokeAssets();
+    }
+
+    uint256 withdrawnAmt = COLLECTOR.withdrawFromV4(fromTokenizationSpoke, amount, address(COLLECTOR));
+
+    return COLLECTOR.depositToV4(toTokenizationSpoke, withdrawnAmt);
+  }
+
   /// DAO Actions
 
   /// @inheritdoc IPoolExposureSteward
@@ -114,6 +189,19 @@ contract PoolExposureSteward is IPoolExposureSteward, OwnableWithGuardian, Rescu
   /// @inheritdoc IPoolExposureSteward
   function revokePool(address pool, bool isVersion3) external onlyOwner {
     _revokePool(pool, isVersion3);
+  }
+
+  /// @inheritdoc IPoolExposureSteward
+  function approveTokenizationSpoke(address tokenizationSpoke) external onlyOwner {
+    _approveTokenizationSpoke(tokenizationSpoke);
+  }
+
+  /// @inheritdoc IPoolExposureSteward
+  function revokeTokenizationSpoke(address tokenizationSpoke) external onlyOwner {
+    _validateTokenizationSpoke(tokenizationSpoke);
+
+    approvedTokenizationSpokes[tokenizationSpoke] = false;
+    emit RevokedTokenizationSpoke(tokenizationSpoke);
   }
 
   /// @inheritdoc IPoolExposureSteward
@@ -144,6 +232,14 @@ contract PoolExposureSteward is IPoolExposureSteward, OwnableWithGuardian, Rescu
       approvedV2Pools[pool] = true;
       emit ApprovedV2Pool(pool);
     }
+  }
+
+  /// @dev Internal function to approve an Aave V4 TokenizationSpoke
+  function _approveTokenizationSpoke(address tokenizationSpoke) internal {
+    if (tokenizationSpoke == address(0)) revert InvalidZeroAddress();
+
+    approvedTokenizationSpokes[tokenizationSpoke] = true;
+    emit ApprovedTokenizationSpoke(tokenizationSpoke);
   }
 
   /// @dev Internal function to perform migration
@@ -181,5 +277,10 @@ contract PoolExposureSteward is IPoolExposureSteward, OwnableWithGuardian, Rescu
   /// @dev Internal function to validate if an Aave V2 Pool instance has been approved
   function _validateV2Pool(address pool) internal view {
     if (!approvedV2Pools[pool]) revert UnrecognizedPool();
+  }
+
+  /// @dev Internal function to validate if an Aave V4 TokenizationSpoke has been approved
+  function _validateTokenizationSpoke(address tokenizationSpoke) internal view {
+    if (!approvedTokenizationSpokes[tokenizationSpoke]) revert UnrecognizedTokenizationSpoke();
   }
 }
