@@ -19,6 +19,15 @@ interface IPoolExposureSteward {
   /// @dev Both Aave V4 TokenizationSpokes must tokenize the same underlying asset
   error MismatchingTokenizationSpokeAssets();
 
+  /// @dev Origin and destination Aave V4 TokenizationSpokes must be different
+  error SameTokenizationSpoke();
+
+  /// @dev Aave V4 TokenizationSpoke is already approved
+  error TokenizationSpokeAlreadyApproved();
+
+  /// @dev Aave V4 TokenizationSpoke is not listed on its Hub for the underlying it reports
+  error InvalidTokenizationSpoke();
+
   /// @notice Emitted when a new V2 Pool gets listed
   /// @param pool The address of the new pool
   event ApprovedV2Pool(address indexed pool);
@@ -110,7 +119,7 @@ interface IPoolExposureSteward {
   /// @dev The underlying is derived from the TokenizationSpoke
   /// @param v2Pool The address of the origin V2 Pool
   /// @param tokenizationSpoke The address of the destination Aave V4 TokenizationSpoke
-  /// @param amount The amount of underlying to migrate, type(uint256).max for the full Collector balance
+  /// @param amount The amount of underlying to migrate, `type(uint256).max` for the Collector's full V2 aToken balance
   /// @return The amount of TokenizationSpoke shares minted to the Collector
   function migrateV2toV4(address v2Pool, address tokenizationSpoke, uint256 amount) external returns (uint256);
 
@@ -118,7 +127,7 @@ interface IPoolExposureSteward {
   /// @dev The underlying is derived from the TokenizationSpoke
   /// @param v3Pool The address of the origin V3 Pool
   /// @param tokenizationSpoke The address of the destination Aave V4 TokenizationSpoke
-  /// @param amount The amount of underlying to migrate, type(uint256).max for the full Collector balance
+  /// @param amount The amount of underlying to migrate, `type(uint256).max` for the Collector's full V3 aToken balance
   /// @return The amount of TokenizationSpoke shares minted to the Collector
   function migrateV3toV4(address v3Pool, address tokenizationSpoke, uint256 amount) external returns (uint256);
 

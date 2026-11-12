@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {ICollector, CollectorUtils as CU} from "aave-helpers/src/CollectorUtils.sol";
-import {ITokenizationSpoke} from "aave-address-book/AaveV4.sol";
+import {IHub, ITokenizationSpoke} from "aave-address-book/AaveV4.sol";
 import {OwnableWithGuardian} from "solidity-utils/contracts/access-control/OwnableWithGuardian.sol";
 import {RescuableBase, IRescuableBase} from "solidity-utils/contracts/utils/RescuableBase.sol";
 import {Multicall} from "openzeppelin-contracts/contracts/utils/Multicall.sol";
@@ -170,6 +170,7 @@ contract PoolExposureSteward is IPoolExposureSteward, OwnableWithGuardian, Rescu
     _validateTokenizationSpoke(fromTokenizationSpoke);
     _validateTokenizationSpoke(toTokenizationSpoke);
 
+    if (fromTokenizationSpoke == toTokenizationSpoke) revert SameTokenizationSpoke();
     if (ITokenizationSpoke(fromTokenizationSpoke).asset() != ITokenizationSpoke(toTokenizationSpoke).asset()) {
       revert MismatchingTokenizationSpokeAssets();
     }
@@ -235,8 +236,19 @@ contract PoolExposureSteward is IPoolExposureSteward, OwnableWithGuardian, Rescu
   }
 
   /// @dev Internal function to approve an Aave V4 TokenizationSpoke
+  /// @dev The spoke must be listed on its own Hub, for the same underlying it reports or reverts
   function _approveTokenizationSpoke(address tokenizationSpoke) internal {
     if (tokenizationSpoke == address(0)) revert InvalidZeroAddress();
+    if (approvedTokenizationSpokes[tokenizationSpoke]) revert TokenizationSpokeAlreadyApproved();
+
+    IHub hub = IHub(ITokenizationSpoke(tokenizationSpoke).hub());
+    uint256 assetId = ITokenizationSpoke(tokenizationSpoke).assetId();
+    (address underlying,) = hub.getAssetUnderlyingAndDecimals(assetId);
+    if (
+      !hub.isSpokeListed(assetId, tokenizationSpoke) || underlying != ITokenizationSpoke(tokenizationSpoke).asset()
+    ) {
+      revert InvalidTokenizationSpoke();
+    }
 
     approvedTokenizationSpokes[tokenizationSpoke] = true;
     emit ApprovedTokenizationSpoke(tokenizationSpoke);
